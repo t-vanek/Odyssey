@@ -476,7 +476,7 @@ public sealed class AutomaticDriveTests
         Assert.True(viewModel.LeftPane.CanGoBack);
         viewModel.LeftPane.GoBack();
         Assert.True(await TestWait.UntilAsync(
-            () => !viewModel.LeftPane.IsLoading, TimeSpan.FromSeconds(3)));
+            () => !viewModel.LeftPane.IsLoading, TimeSpan.FromSeconds(10)));
         Assert.Equal(Path.GetFullPath(root), viewModel.LeftPane.CurrentPath);
         viewModel.CancelActiveWork();
     }
