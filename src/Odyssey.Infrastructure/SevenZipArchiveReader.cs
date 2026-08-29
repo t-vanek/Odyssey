@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Xml;
 using SharpSevenZip;
@@ -38,17 +39,29 @@ internal sealed class SevenZipArchiveReader
 
     private static SevenZipArchiveReader? CreateDefault()
     {
-        var libraryPath = ResolveLibraryPath();
-        if (libraryPath is null) return null;
-        try
+        foreach (var libraryPath in ResolveLibraryPaths())
         {
-            SharpSevenZipBase.SetLibraryPath(libraryPath);
-            return new SevenZipArchiveReader(libraryPath);
+            try
+            {
+                if (!NativeLibrary.TryLoad(libraryPath, out var handle)) continue;
+                try
+                {
+                    if (!NativeLibrary.TryGetExport(handle, "CreateObject", out _)) continue;
+                }
+                finally
+                {
+                    NativeLibrary.Free(handle);
+                }
+                SharpSevenZipBase.SetLibraryPath(libraryPath);
+                return new SevenZipArchiveReader(libraryPath);
+            }
+            catch
+            {
+                // A bundled library can be incompatible with an older distribution.
+                // Continue to an explicitly installed, interface-compatible candidate.
+            }
         }
-        catch
-        {
-            return null;
-        }
+        return null;
     }
 
     private static string ReadEntryNames(SharpSevenZipExtractor archive, CancellationToken token)
@@ -109,11 +122,11 @@ internal sealed class SevenZipArchiveReader
         output.Append(value.AsSpan(0, Math.Min(value.Length, remaining)));
     }
 
-    private static string? ResolveLibraryPath()
+    private static IEnumerable<string> ResolveLibraryPaths()
     {
         var configured = Environment.GetEnvironmentVariable("ODYSSEY_7ZIP_LIBRARY");
         if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
-            return Path.GetFullPath(configured);
+            yield return Path.GetFullPath(configured);
 
         var baseDirectory = AppContext.BaseDirectory;
         string[] candidates;
@@ -152,8 +165,13 @@ internal sealed class SevenZipArchiveReader
                 "/opt/homebrew/lib/7zip/7z.dylib"
             ];
         }
-        return candidates.FirstOrDefault(File.Exists);
+        foreach (var candidate in candidates.Where(File.Exists).Distinct(PathComparer))
+            yield return candidate;
     }
+
+    private static StringComparer PathComparer => OperatingSystem.IsWindows()
+        ? StringComparer.OrdinalIgnoreCase
+        : StringComparer.Ordinal;
 
     private sealed class BoundedMemoryStream(long maximumLength) : MemoryStream
     {

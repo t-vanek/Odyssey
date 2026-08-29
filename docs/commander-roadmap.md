@@ -39,6 +39,10 @@ Status meanings:
   - Recovery validates absolute canonical ZIP paths, transaction-derived sibling names, regular-file/link boundaries, manifest size/count and archive integrity before completing publication or restoring a backup. Malformed or ambiguous state is preserved for manual inspection.
   - Startup deletes only exact GUID-named controlled relay directories and never follows nested links. Injected post-backup failure, pre-publish crash, published-target loss, corrupt replacement, forged artifact path and stale relay/link cases are automated.
   - Stage verification: archive scenarios 29/29; full suite 133/133 in three consecutive repeat runs; stability scenarios 5/5 in three consecutive runs; Debug and Release builds 0 warnings/errors; NuGet vulnerability audit found no vulnerable direct or transitive package; `git diff --check` passed.
+- Stage N1 — verified native dependency packaging: **Done**.
+  - CI builds the Linux x64 7-Zip 26.02 shared library from an exact upstream commit and runs native archive tests through `ODYSSEY_7ZIP_LIBRARY`. Release packaging verifies the SharpSevenZip-supplied Windows x64 DLL by SHA-256, removes wrong-platform payloads, and includes the correct native library, both license texts, third-party notices, and an internal asset manifest.
+  - Finished ZIP/TAR.GZ release containers are extracted and their declared native hashes are independently checked before publication. Runtime selection preflights both loading and the expected `CreateObject` export, then safely falls back to another compatible candidate if necessary; it never downloads code.
+  - Stage verification on Linux: Debug and release builds 0 warnings/errors; full suite 134/134 with the freshly built native engine; stability scenarios 5/5 in three consecutive runs; local staging and final-container verification passed for both RIDs, including a complete self-contained Linux package; NuGet audit found no vulnerable direct or transitive package; `actionlint` and `git diff --check` passed. The hosted Windows job and a tagged GitHub Release were not executed locally.
 - Next production stage: writable TAR creation with transactional replacement and reproducible fixtures. Writable 7z remains gated on a supported writer and rollback coverage; do not advertise either capability early.
 
 ## 1. Keyboard-first Commander UX
@@ -71,7 +75,7 @@ Overall: **Partial**. Browsing/extraction plus crash-recoverable transactional Z
 |---|---|---|
 | Open archives in panel; navigation/tabs/history/filter | Done | Archive provider is wired into both panes; archive location survives tab/workspace restore only after target-boundary and availability validation. |
 | ZIP browse/extract | Done | Managed streaming implementation with hostile/corrupt archive tests. |
-| 7z/TAR/TAR.GZ/GZip/BZip2/XZ/RAR browse/extract | Partial | Production path uses the existing native 7-Zip engine only when available. No reproducible native-format fixture matrix was run in this Linux environment. |
+| 7z/TAR/TAR.GZ/GZip/BZip2/XZ/RAR browse/extract | Partial | Releases now bundle a verified RID-specific 7-Zip engine and Linux CI executes a real 7z create/read scenario against its pinned source build. A complete hostile/corrupt fixture matrix for every listed non-ZIP format is still missing. |
 | Read/write capability flags | Done | ZIP advertises tested create/update/delete; other formats advertise browse/extract only when available. |
 | Secure file/tree extraction | Done | Canonical path checks, link rejection, quotas, free-space preflight, guarded streaming, cancellation cleanup and destination staging/publish are implemented. |
 | Shared progress/cancel/retry/restart queue | Done | Archive→local jobs use the durable transfer queue; restart-during-extraction test passes. Byte-range resume within a compressed entry is not claimed. |

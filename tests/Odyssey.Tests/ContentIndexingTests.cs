@@ -19,6 +19,16 @@ namespace Odyssey.Tests;
 public sealed class ContentIndexingTests
 {
     [Fact]
+    public void ConfiguredNativeSevenZipLibraryIsLoadable()
+    {
+        var configured = Environment.GetEnvironmentVariable("ODYSSEY_7ZIP_LIBRARY");
+        if (string.IsNullOrWhiteSpace(configured)) return;
+
+        var reader = Assert.IsType<SevenZipArchiveReader>(SevenZipArchiveReader.Default);
+        Assert.Equal(Path.GetFullPath(configured), reader.LibraryPath, OperatingSystem.IsWindows());
+    }
+
+    [Fact]
     public async Task ZipEntryNamesAreExtractedLocally()
     {
         var root = Path.Combine(Path.GetTempPath(), $"odyssey-zip-{Guid.NewGuid():N}");

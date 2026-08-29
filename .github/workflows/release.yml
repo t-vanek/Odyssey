@@ -24,7 +24,7 @@ concurrency:
 jobs:
   validate:
     name: Validate version and tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     outputs:
       tag: ${{ steps.version.outputs.tag }}
@@ -71,6 +71,14 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Validate native dependency manifest
+        shell: bash
+        run: ./eng/verify-native-manifest.sh
+
+      - name: Build pinned Linux 7-Zip library
+        shell: bash
+        run: ./eng/build-native-7zip.sh artifacts/native/linux-x64
+
       - name: Restore
         run: dotnet restore Odyssey.slnx
 
@@ -85,6 +93,8 @@ jobs:
         run: dotnet build Odyssey.slnx --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:TreatWarningsAsErrors=true -p:Version=${{ steps.version.outputs.version }}
 
       - name: Test
+        env:
+          ODYSSEY_7ZIP_LIBRARY: ${{ github.workspace }}/artifacts/native/linux-x64/7z.so
         run: >-
           dotnet test Odyssey.slnx --configuration Release --no-build --no-restore
           --blame-hang --blame-hang-timeout 5m
@@ -93,6 +103,8 @@ jobs:
 
       - name: Repeat real stability scenarios
         shell: bash
+        env:
+          ODYSSEY_7ZIP_LIBRARY: ${{ github.workspace }}/artifacts/native/linux-x64/7z.so
         run: |
           for pass in 1 2 3; do
             dotnet test Odyssey.slnx --configuration Release --no-build --no-restore \
@@ -110,6 +122,14 @@ jobs:
           path: TestResults/**
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Upload verified native assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-linux-x64
+          path: artifacts/native/linux-x64
+          if-no-files-found: error
+          retention-days: 7
 
   package:
     name: Package ${{ matrix.rid }}
@@ -143,6 +163,12 @@ jobs:
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           global-json-file: global.json
+
+      - name: Download pinned native assets
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: native-linux-x64
+          path: artifacts/native/linux-x64
 
       - name: Restore runtime projects
         shell: bash
@@ -199,6 +225,10 @@ jobs:
           test -s "publish/app/${{ matrix.updater }}"
           test -s "publish/app/${{ matrix.mcp }}"
 
+      - name: Stage native libraries and licenses
+        shell: bash
+        run: ./eng/stage-native-assets.sh "${{ matrix.rid }}" publish/app artifacts/native/linux-x64
+
       - name: Create Windows archive
         if: runner.os == 'Windows'
         shell: pwsh
@@ -230,6 +260,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out tagged source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+          persist-credentials: false
+
       - name: Download platform packages
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
@@ -244,6 +280,8 @@ jobs:
           test -s dist/Odyssey-linux-x64.tar.gz
           unzip -tqq dist/Odyssey-win-x64.zip
           tar -tzf dist/Odyssey-linux-x64.tar.gz >/dev/null
+          ./eng/verify-packaged-native-assets.sh win-x64 dist/Odyssey-win-x64.zip
+          ./eng/verify-packaged-native-assets.sh linux-x64 dist/Odyssey-linux-x64.tar.gz
 
       - name: Create checksums and update manifest
         shell: bash

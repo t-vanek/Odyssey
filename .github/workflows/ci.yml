@@ -38,6 +38,18 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Validate native dependency manifest
+        shell: bash
+        run: ./eng/verify-native-manifest.sh
+
+      - name: Build pinned Linux 7-Zip library
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          ./eng/build-native-7zip.sh artifacts/native/linux-x64
+          mkdir -p TestResults
+          cp artifacts/native/linux-x64/7z.so.sha256 TestResults/native-linux-x64.sha256
+
       - name: Restore
         run: dotnet restore Odyssey.slnx
 
@@ -53,6 +65,8 @@ jobs:
         run: dotnet build Odyssey.slnx --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:TreatWarningsAsErrors=true
 
       - name: Test
+        env:
+          ODYSSEY_7ZIP_LIBRARY: ${{ runner.os == 'Linux' && format('{0}/artifacts/native/linux-x64/7z.so', github.workspace) || '' }}
         run: >-
           dotnet test Odyssey.slnx --configuration Release --no-build --no-restore
           --collect "XPlat Code Coverage"
@@ -62,6 +76,8 @@ jobs:
 
       - name: Repeat real stability scenarios
         shell: bash
+        env:
+          ODYSSEY_7ZIP_LIBRARY: ${{ runner.os == 'Linux' && format('{0}/artifacts/native/linux-x64/7z.so', github.workspace) || '' }}
         run: |
           for pass in 1 2 3; do
             dotnet test Odyssey.slnx --configuration Release --no-build --no-restore \
