@@ -544,7 +544,8 @@ public sealed class ArchiveTests : IDisposable
         await WaitForStateAsync(queue, job.Id, FileTransferState.Completed);
 
         Assert.Equal("queued.txt", Assert.Single(await archives.ListAsync(archivePath, "incoming")).Name);
-        var persisted = await File.ReadAllTextAsync(Path.Combine(storage.DirectoryPath, "transfer-queue.json"));
+        var persisted = await ReadAllTextWhenAvailableAsync(
+            Path.Combine(storage.DirectoryPath, "transfer-queue.json"));
         Assert.DoesNotContain("password", persisted, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -916,6 +917,23 @@ public sealed class ArchiveTests : IDisposable
             await Task.Delay(20);
         }
         Assert.Equal(expected, queue.Items.Single(item => item.Id == id).State);
+    }
+
+    private static async Task<string> ReadAllTextWhenAvailableAsync(string path)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (true)
+        {
+            try { return await File.ReadAllTextAsync(path); }
+            catch (Exception exception) when (DateTime.UtcNow < deadline
+                                               && exception is IOException or UnauthorizedAccessException)
+            {
+                // The queue publishes atomically. Windows can briefly deny a reader while
+                // the destination name is being replaced, so observe the completed snapshot
+                // after that bounded publication window instead of racing the writer.
+                await Task.Delay(20);
+            }
+        }
     }
 
     private sealed class InlineProgress<T>(Action<T> callback) : IProgress<T>
