@@ -1,0 +1,717 @@
+using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Text.Json;
+using Avalonia;
+using Avalonia.Data.Converters;
+using CommunityToolkit.Mvvm.ComponentModel;
+using Odyssey.Core;
+using Odyssey.Infrastructure;
+
+namespace Odyssey.Desktop;
+
+public sealed record LanguageOption(string Code, string Name);
+
+public sealed class LocalizationService : ObservableObject
+{
+    private static readonly IReadOnlyDictionary<string, string> English = CreateEnglish();
+    private static readonly IReadOnlyDictionary<string, string> Czech = CreateCzech();
+    private readonly string _settingsPath;
+    private LanguageOption _selectedLanguage;
+
+    public LocalizationService(ApplicationStorage storage)
+    {
+        _settingsPath = Path.Combine(storage.DirectoryPath, "settings.json");
+        Languages = new ObservableCollection<LanguageOption>
+        {
+            new("cs", "Čeština"),
+            new("en", "English")
+        };
+        var saved = LoadLanguage();
+        var initial = saved ?? (CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "cs" ? "cs" : "en");
+        _selectedLanguage = Languages.First(language => language.Code == initial);
+        ApplyResources();
+    }
+
+    public static LocalizationService? Current { get; private set; }
+    public ObservableCollection<LanguageOption> Languages { get; }
+    public event EventHandler? LanguageChanged;
+
+    public LanguageOption SelectedLanguage
+    {
+        get => _selectedLanguage;
+        set
+        {
+            if (value is null || !SetProperty(ref _selectedLanguage, value)) return;
+            ApplyResources();
+            SaveLanguage();
+            LanguageChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public string this[string key] => Active.TryGetValue(key, out var value) ? value : key;
+    public string Format(string key, params object?[] arguments) => string.Format(CultureInfo.CurrentCulture, this[key], arguments);
+
+    public string TranslateEnum(object? value) => value switch
+    {
+        FileEntryType.File => this["File"],
+        FileEntryType.Directory => this["Directory"],
+        FileCategory.Documents => this["Documents"],
+        FileCategory.Images => this["Images"],
+        FileCategory.Videos => this["Videos"],
+        FileCategory.Audio => this["Audio"],
+        FileCategory.Archives => this["Archives"],
+        FileCategory.SourceCode => this["SourceCode"],
+        FileCategory.Executables => this["Executables"],
+        FileCategory.Other => this["Other"],
+        SearchSuggestionKind.History => this["SuggestionHistory"],
+        SearchSuggestionKind.FileName => this["SuggestionFileName"],
+        ScanStatus.Running => this["Running"],
+        ScanStatus.Completed => this["Completed"],
+        ScanStatus.Cancelled => this["Cancelled"],
+        ScanStatus.Failed => this["Failed"],
+        FileOperationKind.CreateDirectory => this["CreateFolder"],
+        FileOperationKind.Copy => this["Copy"],
+        FileOperationKind.Move => this["Move"],
+        FileOperationKind.Rename => this["Rename"],
+        FileOperationKind.Trash => this["MoveToTrash"],
+        true => this["Yes"],
+        false => this["No"],
+        _ => value?.ToString() ?? string.Empty
+    };
+
+    private IReadOnlyDictionary<string, string> Active => SelectedLanguage.Code == "cs" ? Czech : English;
+
+    private void ApplyResources()
+    {
+        Current = this;
+        var culture = new CultureInfo(SelectedLanguage.Code == "cs" ? "cs-CZ" : "en-US");
+        CultureInfo.CurrentCulture = culture;
+        CultureInfo.CurrentUICulture = culture;
+        if (Application.Current?.Resources is null) return;
+        foreach (var item in Active) Application.Current.Resources[item.Key] = item.Value;
+    }
+
+    private string? LoadLanguage()
+    {
+        try
+        {
+            if (!File.Exists(_settingsPath)) return null;
+            var value = JsonSerializer.Deserialize<LanguageSettings>(File.ReadAllText(_settingsPath))?.Language;
+            return Languages.Any(language => language.Code == value) ? value : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void SaveLanguage()
+    {
+        try
+        {
+            File.WriteAllText(_settingsPath, JsonSerializer.Serialize(new LanguageSettings(SelectedLanguage.Code)));
+        }
+        catch
+        {
+            // A read-only application-data directory must not prevent Odyssey from running.
+        }
+    }
+
+    private sealed record LanguageSettings(string Language);
+
+    private static Dictionary<string, string> CreateEnglish() => new(StringComparer.Ordinal)
+    {
+        ["WindowTitle"] = "Odyssey — Find your work",
+        ["MenuTarget"] = "Targets",
+        ["MenuFiles"] = "Files",
+        ["MenuSearch"] = "Search",
+        ["MenuAnalysis"] = "Analysis",
+        ["MenuSettings"] = "Settings",
+        ["Find"] = "Find",
+        ["Scan"] = "Scan",
+        ["Analyze"] = "Analyze",
+        ["CopyPath"] = "Copy path",
+        ["OpenFolder"] = "Open folder",
+        ["Tagline"] = "SAFE FILE COMMANDER",
+        ["MenuRescue"] = "Rescue",
+        ["RescueProductLine"] = "Find your work",
+        ["SplashSubtitle"] = "Find your work",
+        ["SplashPreparing"] = "Preparing Odyssey…",
+        ["SplashCheckingFormats"] = "Checking PDF, Office, OCR and archive support…",
+        ["SplashOpeningIndex"] = "Opening the search index…",
+        ["SplashLoadingWorkspace"] = "Loading your search locations…",
+        ["SplashWarmingSearch"] = "Preparing instant search…",
+        ["SplashPreparingFolders"] = "Preparing your folders…",
+        ["SplashStartingServices"] = "Starting background assistance…",
+        ["SplashReady"] = "Ready",
+        ["ExpertView"] = "Expert view",
+        ["RescueTitle"] = "What are you looking for?",
+        ["RescueSubtitle"] = "Describe anything you remember. A name, a person, a place, a year, or a few words from the document can help.",
+        ["RescueSearchPlaceholder"] = "For example: water project Ostravice, around 2021…",
+        ["StartSearching"] = "Start searching",
+        ["RescueSearchHint"] = "Names, paths, PDF, Office, archives and recognized image text",
+        ["SuggestionHistory"] = "Recent search",
+        ["SuggestionFileName"] = "Indexed file",
+        ["MatchProbabilityShort"] = "{0}% match",
+        ["MatchProbabilityValue"] = "{0}%",
+        ["MatchProbabilityTitle"] = "Estimated match",
+        ["MatchProbabilityHelp"] = "An explainable estimate based on the name, location and indexed contents — not a guarantee.",
+        ["Probability"] = "Match",
+        ["ConfidenceExactName"] = "The requested words closely match the file name.",
+        ["ConfidenceNameAndContent"] = "The words match both the file name and its indexed contents.",
+        ["ConfidenceName"] = "Important words appear directly in the file name.",
+        ["ConfidenceContent"] = "The words were found inside the indexed document.",
+        ["ConfidencePath"] = "The words match the folder or location of this file.",
+        ["ConfidenceGeneral"] = "The file matches the entered clues and active filters.",
+        ["RescueLocations"] = "Search locations: {0:N0}",
+        ["AddSearchLocation"] = "Choose a folder or drive",
+        ["RescueAddLocationTitle"] = "Where should we look?",
+        ["RescueAddLocationDetail"] = "Choose a folder or drive. Odyssey will search it carefully.",
+        ["RescueWelcomeTitle"] = "You can start with a few words",
+        ["RescueWelcomeDetail"] = "You do not need to know the exact file name or folder. Odyssey also searches inside supported documents.",
+        ["RescueTipTitle"] = "What helps",
+        ["RescueTipText"] = "Try a project name, surname, town, approximate year, or a phrase you remember from the document.",
+        ["RescueSearchingTitle"] = "We’re looking for your work",
+        ["RescueSearchingDetail"] = "Useful results will appear as soon as they are ready. You can keep working while Odyssey searches.",
+        ["RescueNoResultsTitle"] = "Nothing yet",
+        ["RescueNoResultsDetail"] = "Your work may still be there. We can check the selected location more thoroughly or include another drive.",
+        ["RescueSearchFailedTitle"] = "Search paused",
+        ["RescueSearchFailedDetail"] = "Odyssey could not finish this search. Your files are safe. Try again when you’re ready.",
+        ["TrySearchAgain"] = "Try again",
+        ["SearchMoreThoroughly"] = "Search more thoroughly",
+        ["AddAnotherLocation"] = "Add another location",
+        ["RescueFoundTitle"] = "Found so far: {0:N0}",
+        ["RescueFoundDetail"] = "Start with the files that look familiar. New results can appear while background indexing continues.",
+        ["SelectResultTitle"] = "Choose a result",
+        ["SelectResultDetail"] = "Select a file to see where it is and why it matched.",
+        ["WhyThisResult"] = "Why this may be your file",
+        ["OpenSafely"] = "Open",
+        ["ShowInFolder"] = "Show in folder",
+        ["PreviewSafetyNote"] = "Opening uses your system’s default application. Odyssey does not change the source file.",
+        ["SearchIndex"] = "SEARCH INDEX",
+        ["SearchPlaceholder"] = "Search names, paths and document content…",
+        ["SearchButton"] = "Search",
+        ["ScanTargets"] = "SCAN TARGETS",
+        ["Locations"] = "locations",
+        ["AddFolderF2"] = "F2  Add folder",
+        ["Configure"] = "Configure",
+        ["Disconnect"] = "Disconnect",
+        ["TargetReadOnly"] = "Selected target is always scanned read-only",
+        ["Safe"] = "SAFE",
+        ["Welcome"] = "WELCOME TO ODYSSEY",
+        ["AddFolderToBegin"] = "Add a folder or disk to begin",
+        ["Intro"] = "Odyssey finds files without moving, renaming, changing, or deleting them.",
+        ["AddScanTarget"] = "F2  Add scan target",
+        ["DirectTargets"] = "Choose a location, scan it, then search.",
+        ["AllCategories"] = "All categories",
+        ["Extension"] = "Extension",
+        ["MinimumBytes"] = "Min size",
+        ["MaximumBytes"] = "Max size",
+        ["ModifiedFrom"] = "Modified from",
+        ["ModifiedTo"] = "Modified to",
+        ["SelectedTargetOnly"] = "Selected target only",
+        ["AdvancedFilters"] = "Advanced filters",
+        ["NamePath"] = "Name / path",
+        ["Type"] = "Type",
+        ["Category"] = "Category",
+        ["Modified"] = "Modified",
+        ["Size"] = "Size",
+        ["NoItemSelected"] = "No item selected",
+        ["OpenF3"] = "F3  Open",
+        ["FolderF4"] = "F4  Folder",
+        ["CopyFullPath"] = "Copy full path",
+        ["Created"] = "Created",
+        ["Missing"] = "Missing",
+        ["Bytes"] = "bytes",
+        ["TargetConfiguration"] = "TARGET AND SCAN",
+        ["SelectedTarget"] = "Selected target",
+        ["RecursiveScan"] = "Include subfolders",
+        ["Exclusions"] = "Folders and patterns to skip",
+        ["AddFolder"] = "Add folder",
+        ["SaveSettings"] = "Save settings",
+        ["DisconnectHelp"] = "Disconnect removes only Odyssey's index. Your files remain untouched.",
+        ["ScanProgress"] = "Scan progress",
+        ["WaitingScan"] = "Waiting for a scan…",
+        ["Files"] = "FILES",
+        ["Directories"] = "FOLDERS",
+        ["Indexed"] = "INDEXED",
+        ["Observed"] = "SIZE",
+        ["Errors"] = "ERRORS",
+        ["Elapsed"] = "TIME",
+        ["StartScanF5"] = "F5  Start scan",
+        ["Cancel"] = "Cancel",
+        ["IndexAnalysis"] = "ANALYSIS",
+        ["IndexedSize"] = "INDEXED SIZE",
+        ["MissingFiles"] = "MISSING",
+        ["ScanErrors"] = "SCAN ERRORS",
+        ["SameSizeGroups"] = "POSSIBLE DUPLICATES",
+        ["Categories"] = "Categories",
+        ["SafeDuplicates"] = "Duplicate files",
+        ["DuplicateHelp"] = "Odyssey compares only files of the same size and never removes a copy.",
+        ["ConfirmedGroups"] = "Confirmed groups",
+        ["RunAnalysis"] = "Find duplicates",
+        ["Refresh"] = "Refresh",
+        ["SettingsSafety"] = "SETTINGS",
+        ["Database"] = "Odyssey data",
+        ["DatabaseHelp"] = "Stored in the system application-data folder, never in a scanned location.",
+        ["ReadOnlyGuarantee"] = "Read-only protection",
+        ["ReadOnlyHelp"] = "Odyssey only reads scanned locations. It never moves, renames, edits, or deletes your files.",
+        ["AutomaticDrives"] = "Automatically detect and scan new drives",
+        ["AutomaticDrivesHelp"] = "Odyssey watches drives already mounted by the operating system. System disks are skipped.",
+        ["ReadOnly"] = "READ ONLY",
+        ["LocalIndex"] = "LOCAL INDEX",
+        ["TargetConfigF8"] = "F8  Target settings",
+        ["AnalysisF7"] = "F7  Analysis",
+        ["SettingsF9"] = "F9  Settings",
+        ["OpenF3Short"] = "F3  Open",
+        ["OpenFolderF4"] = "F4  Open folder",
+        ["CopyPathF6"] = "F6  Copy path",
+        ["StartScanF5Short"] = "F5  Start scan",
+        ["ReadOnlyShort"] = "RO",
+        ["Yes"] = "Yes",
+        ["No"] = "No",
+        ["File"] = "File",
+        ["Directory"] = "Folder",
+        ["Documents"] = "Documents",
+        ["Images"] = "Images",
+        ["Videos"] = "Videos",
+        ["Audio"] = "Audio",
+        ["Archives"] = "Archives",
+        ["SourceCode"] = "Source code",
+        ["Executables"] = "Programs",
+        ["Other"] = "Other",
+        ["Ready"] = "Ready",
+        ["Running"] = "Scanning",
+        ["Completed"] = "Completed",
+        ["Cancelled"] = "Cancelled",
+        ["Failed"] = "Failed",
+        ["Cancelling"] = "Cancelling…",
+        ["Starting"] = "Starting Odyssey…",
+        ["IndexLoaded"] = "Ready. Add a folder or search the existing index.",
+        ["InitializationFailed"] = "Odyssey could not start: {0}",
+        ["LoadTargetsFailed"] = "Could not load folders: {0}",
+        ["TargetAdded"] = "Folder added. Your files were not changed.",
+        ["TargetAddFailed"] = "Could not add folder: {0}",
+        ["TargetRemoved"] = "Folder disconnected from Odyssey. Your files were not changed.",
+        ["TargetSaved"] = "Folder settings saved.",
+        ["TargetSaveFailed"] = "Could not save settings: {0}",
+        ["ScanCompletedMessage"] = "Scan complete. You can search now.",
+        ["ScanEnded"] = "Scan ended: {0}.",
+        ["ScanFailedMessage"] = "Scan failed: {0}",
+        ["SearchFailed"] = "Search failed: {0}",
+        ["SearchResults"] = "{0:N0} result(s) in {1:N0} ms.",
+        ["AnalysisFailed"] = "Analysis failed: {0}",
+        ["DuplicatesRunning"] = "Checking possible duplicates…",
+        ["DuplicatesDone"] = "Found {0:N0} duplicate group(s). No files were changed.",
+        ["DuplicatesFailed"] = "Duplicate check failed: {0}",
+        ["PathCopied"] = "Full path copied.",
+        ["Opened"] = "Opened with the operating system.",
+        ["FolderOpened"] = "Folder opened."
+        ,
+        ["PickFolderTitle"] = "Choose a folder for Odyssey to scan",
+        ["ClipboardUnavailable"] = "Clipboard is unavailable.",
+        ["EntryUnavailable"] = "The indexed item is no longer available.",
+        ["FolderUnavailable"] = "The containing folder is unavailable."
+        ,
+        ["DriveDetected"] = "New drive detected: {0}. Starting a read-only scan.",
+        ["DriveDiscoveryFailed"] = "Automatic drive detection failed: {0}",
+        ["BackgroundWatching"] = "Background: monitoring approved locations",
+        ["BackgroundScanning"] = "Background: verifying changes in {0}",
+        ["BackgroundContent"] = "Background: indexed content of {0:N0} file(s)",
+        ["BackgroundMaintenance"] = "Background: optimizing local index",
+        ["BackgroundWaiting"] = "Background: waiting for {0}",
+        ["BackgroundFailed"] = "Background task: {0}"
+        ,
+        ["BackgroundAutomationTitle"] = "BACKGROUND AUTOMATION",
+        ["BackgroundAutomationHelp"] = "Approved locations are monitored read-only. Changes are debounced, document content is indexed locally, interrupted work continues automatically, and maintenance yields to interactive work."
+        ,
+        ["OcrReady"] = "OCR ready: {0}",
+        ["OcrUnavailable"] = "OCR unavailable: install Tesseract with Czech and English language data, then restart Odyssey",
+        ["OcrLanguages"] = "Czech + English"
+        ,
+        ["FileManagement"] = "FILE MANAGEMENT",
+        ["FileManagementHelp"] = "File management is enabled. Odyssey can change files only after an explicit command; existing destination items are never overwritten.",
+        ["EnableFileManagement"] = "Enable file management",
+        ["EnableReadOnly"] = "Switch to read-only",
+        ["EnableFileManagementTitle"] = "Enable file management?",
+        ["EnableFileManagementWarning"] = "This mode allows Odyssey to create, copy, move, rename, and move files to trash. Changes affect the real filesystem. Existing destination items will not be overwritten.",
+        ["ReadOnlyEnabled"] = "Read-only protection is enabled.",
+        ["FileManagementEnabled"] = "File management is enabled. Changes now affect real files.",
+        ["Confirm"] = "Confirm",
+        ["PickDestinationTitle"] = "Choose destination folder",
+        ["CreateFolder"] = "Create folder",
+        ["CreateFolderTitle"] = "New folder",
+        ["CreateFolderPrompt"] = "Enter the name of the new folder:",
+        ["FolderCreated"] = "Folder created.",
+        ["Rename"] = "Rename",
+        ["RenameTitle"] = "Rename item",
+        ["RenamePrompt"] = "Enter a new name:",
+        ["RenameCompleted"] = "Item renamed.",
+        ["Copy"] = "Copy",
+        ["CopyCompleted"] = "Copy completed.",
+        ["Move"] = "Move",
+        ["MoveTitle"] = "Move item",
+        ["MoveConfirmation"] = "Move this item?\n\n{0}\n\nto\n\n{1}",
+        ["MoveCompleted"] = "Move completed.",
+        ["MoveToTrash"] = "Move to trash",
+        ["TrashTitle"] = "Move item to trash?",
+        ["TrashConfirmation"] = "The item will be moved to the operating system trash:\n\n{0}",
+        ["TrashCompleted"] = "Item moved to trash.",
+        ["Undo"] = "Undo",
+        ["UndoCompleted"] = "Last operation was undone.",
+        ["NothingToUndo"] = "There is no operation that can be undone safely.",
+        ["OperationStarting"] = "Preparing file operation…",
+        ["OperationProgress"] = "Transferred {0} of {1}",
+        ["OperationProgressUnknown"] = "Working on {0}",
+        ["OperationCancelled"] = "File operation cancelled.",
+        ["OperationFailed"] = "File operation failed: {0}",
+        ["CancelOperation"] = "Cancel operation",
+        ["FileOperations"] = "FILE OPERATIONS",
+        ["OperationHistory"] = "Recent operations",
+        ["NoOperationHistory"] = "No file operations have been performed in this run.",
+        ["ReadOnlyModeLabel"] = "Current mode",
+        ["FileManagementSafety"] = "Read-only is the default. Trash is used instead of permanent deletion, and destination conflicts stop the operation.",
+        ["UnmountDrive"] = "Unmount",
+        ["EjectDrive"] = "Eject",
+        ["UnmountDriveTitle"] = "Unmount drive?",
+        ["EjectDriveTitle"] = "Eject drive?",
+        ["UnmountDriveConfirmation"] = "Finish active work and safely unmount {0}?",
+        ["EjectDriveConfirmation"] = "Finish active work, unmount, and power off {0}?",
+        ["DriveUnmounted"] = "Drive was safely unmounted.",
+        ["DriveEjected"] = "Drive was safely ejected.",
+        ["DriveOperationFailed"] = "Drive operation failed: {0}",
+        ["DiskActionsHelp"] = "Unmount and eject use the operating system. Formatting and partition changes are intentionally unavailable.",
+        ["RenameF2"] = "F2  Rename",
+        ["CopyF5"] = "F5  Copy",
+        ["MoveF6"] = "F6  Move",
+        ["NewFolderF7"] = "F7  New folder",
+        ["TrashF8"] = "F8  Trash"
+        ,
+        ["CurrentFolder"] = "CURRENT FOLDER",
+        ["Up"] = "Up",
+        ["FolderItems"] = "{0:N0} item(s) in this folder.",
+        ["BrowseFailed"] = "Folder could not be opened: {0}"
+        ,
+        ["ActivePanel"] = "ACTIVE",
+        ["Name"] = "Name",
+        ["Attributes"] = "Attr.",
+        ["CopyBatchCompleted"] = "Copied {0:N0} item(s).",
+        ["MoveBatchConfirmation"] = "Move {0:N0} selected item(s) to:\n\n{1}",
+        ["MoveBatchCompleted"] = "Moved {0:N0} item(s).",
+        ["TrashBatchConfirmation"] = "Move {0:N0} selected item(s) to the operating system trash?",
+        ["TrashBatchCompleted"] = "Moved {0:N0} item(s) to trash."
+        ,
+        ["DestinationConflict"] = "Operation stopped. An item already exists at the destination: {0}"
+    };
+
+    private static Dictionary<string, string> CreateCzech() => new(StringComparer.Ordinal)
+    {
+        ["WindowTitle"] = "Odyssey — záchrana a hledání souborů",
+        ["MenuTarget"] = "Složky",
+        ["MenuFiles"] = "Soubory",
+        ["MenuSearch"] = "Hledat",
+        ["MenuAnalysis"] = "Přehled",
+        ["MenuSettings"] = "Nastavení",
+        ["Find"] = "Hledat",
+        ["Scan"] = "Prohledat",
+        ["Analyze"] = "Přehled",
+        ["CopyPath"] = "Kopírovat cestu",
+        ["OpenFolder"] = "Otevřít složku",
+        ["Tagline"] = "BEZPEČNÝ SPRÁVCE SOUBORŮ",
+        ["MenuRescue"] = "Záchrana práce",
+        ["RescueProductLine"] = "Najděte svou práci",
+        ["SplashSubtitle"] = "Najděte svou práci",
+        ["SplashPreparing"] = "Připravuji Odyssey…",
+        ["SplashCheckingFormats"] = "Ověřuji podporu PDF, Office, OCR a archivů…",
+        ["SplashOpeningIndex"] = "Otevírám vyhledávací index…",
+        ["SplashLoadingWorkspace"] = "Načítám místa pro hledání…",
+        ["SplashWarmingSearch"] = "Připravuji okamžité hledání…",
+        ["SplashPreparingFolders"] = "Připravuji vaše složky…",
+        ["SplashStartingServices"] = "Spouštím pomoc na pozadí…",
+        ["SplashReady"] = "Připraveno",
+        ["ExpertView"] = "Expertní pohled",
+        ["RescueTitle"] = "Co hledáte?",
+        ["RescueSubtitle"] = "Napište vše, co si pamatujete. Pomůže název, osoba, místo, rok nebo několik slov z dokumentu.",
+        ["RescueSearchPlaceholder"] = "Například: vodní projekt Ostravice, asi rok 2021…",
+        ["StartSearching"] = "Začít hledat",
+        ["RescueSearchHint"] = "Názvy, cesty, PDF, Office, archivy a rozpoznaný text v obrázcích",
+        ["SuggestionHistory"] = "Nedávné hledání",
+        ["SuggestionFileName"] = "Soubor v indexu",
+        ["MatchProbabilityShort"] = "{0}% shoda",
+        ["MatchProbabilityValue"] = "{0}%",
+        ["MatchProbabilityTitle"] = "Odhadovaná shoda",
+        ["MatchProbabilityHelp"] = "Vysvětlitelný odhad podle názvu, umístění a indexovaného obsahu — nikoli záruka.",
+        ["Probability"] = "Shoda",
+        ["ConfidenceExactName"] = "Hledaná slova velmi přesně odpovídají názvu souboru.",
+        ["ConfidenceNameAndContent"] = "Slova odpovídají názvu souboru i jeho indexovanému obsahu.",
+        ["ConfidenceName"] = "Důležitá slova se nacházejí přímo v názvu souboru.",
+        ["ConfidenceContent"] = "Hledaná slova byla nalezena uvnitř indexovaného dokumentu.",
+        ["ConfidencePath"] = "Slova odpovídají složce nebo umístění tohoto souboru.",
+        ["ConfidenceGeneral"] = "Soubor odpovídá zadaným vodítkům a aktivním filtrům.",
+        ["RescueLocations"] = "Prohledávaná místa: {0:N0}",
+        ["AddSearchLocation"] = "Vybrat složku nebo disk",
+        ["RescueAddLocationTitle"] = "Kde máme hledat?",
+        ["RescueAddLocationDetail"] = "Vyberte složku nebo disk. Odyssey jej pečlivě prohledá.",
+        ["RescueWelcomeTitle"] = "Stačí začít několika slovy",
+        ["RescueWelcomeDetail"] = "Nemusíte znát přesný název ani složku. Odyssey hledá také uvnitř podporovaných dokumentů.",
+        ["RescueTipTitle"] = "Co může pomoci",
+        ["RescueTipText"] = "Zkuste název projektu, příjmení, obec, přibližný rok nebo větu, kterou si z dokumentu pamatujete.",
+        ["RescueSearchingTitle"] = "Hledáme vaši práci",
+        ["RescueSearchingDetail"] = "Užitečné výsledky se zobrazí, jakmile budou připravené. Během hledání můžete pokračovat v práci.",
+        ["RescueNoResultsTitle"] = "Zatím jsme nic nenašli",
+        ["RescueNoResultsDetail"] = "Vaše práce tam stále může být. Můžeme vybrané místo prohledat důkladněji nebo přidat další disk.",
+        ["RescueSearchFailedTitle"] = "Hledání se pozastavilo",
+        ["RescueSearchFailedDetail"] = "Odyssey toto hledání nedokončila. Vaše soubory jsou v bezpečí. Až budete chtít, zkuste to znovu.",
+        ["TrySearchAgain"] = "Zkusit znovu",
+        ["SearchMoreThoroughly"] = "Hledat důkladněji",
+        ["AddAnotherLocation"] = "Přidat další místo",
+        ["RescueFoundTitle"] = "Dosud nalezeno: {0:N0}",
+        ["RescueFoundDetail"] = "Začněte soubory, které vám připadají povědomé. Během indexování mohou přibývat další výsledky.",
+        ["SelectResultTitle"] = "Vyberte výsledek",
+        ["SelectResultDetail"] = "Po výběru uvidíte, kde soubor leží a proč se zobrazil.",
+        ["WhyThisResult"] = "Proč by to mohl být váš soubor",
+        ["OpenSafely"] = "Otevřít",
+        ["ShowInFolder"] = "Ukázat ve složce",
+        ["PreviewSafetyNote"] = "Soubor otevře výchozí aplikace systému. Odyssey zdrojový soubor nemění.",
+        ["SearchIndex"] = "HLEDAT",
+        ["SearchPlaceholder"] = "Název, cesta nebo text uvnitř dokumentu…",
+        ["SearchButton"] = "Najít",
+        ["ScanTargets"] = "PROHLEDÁVANÁ MÍSTA",
+        ["Locations"] = "míst",
+        ["AddFolderF2"] = "F2  Přidat složku",
+        ["Configure"] = "Nastavit",
+        ["Disconnect"] = "Odpojit",
+        ["TargetReadOnly"] = "Vybrané místo se vždy pouze čte",
+        ["Safe"] = "BEZPEČNÉ",
+        ["Welcome"] = "VÍTEJTE V ODYSSEY",
+        ["AddFolderToBegin"] = "Nejprve přidejte složku nebo disk",
+        ["Intro"] = "Odyssey najde soubory, aniž by je přesouval, přejmenoval, měnil nebo mazal.",
+        ["AddScanTarget"] = "F2  Přidat místo",
+        ["DirectTargets"] = "Vyberte místo, prohledejte ho a potom hledejte.",
+        ["AllCategories"] = "Všechny typy",
+        ["Extension"] = "Přípona",
+        ["MinimumBytes"] = "Min. velikost",
+        ["MaximumBytes"] = "Max. velikost",
+        ["ModifiedFrom"] = "Změněno od",
+        ["ModifiedTo"] = "Změněno do",
+        ["SelectedTargetOnly"] = "Jen vybrané místo",
+        ["AdvancedFilters"] = "Rozšířené filtry",
+        ["NamePath"] = "Název / cesta",
+        ["Type"] = "Druh",
+        ["Category"] = "Kategorie",
+        ["Modified"] = "Změněno",
+        ["Size"] = "Velikost",
+        ["NoItemSelected"] = "Není vybrána žádná položka",
+        ["OpenF3"] = "F3  Otevřít",
+        ["FolderF4"] = "F4  Složka",
+        ["CopyFullPath"] = "Kopírovat celou cestu",
+        ["Created"] = "Vytvořeno",
+        ["Missing"] = "Chybí",
+        ["Bytes"] = "bajtů",
+        ["TargetConfiguration"] = "MÍSTO A PROHLEDÁVÁNÍ",
+        ["SelectedTarget"] = "Vybrané místo",
+        ["RecursiveScan"] = "Včetně podsložek",
+        ["Exclusions"] = "Vynechané složky a vzory",
+        ["AddFolder"] = "Přidat složku",
+        ["SaveSettings"] = "Uložit nastavení",
+        ["DisconnectHelp"] = "Odpojení odstraní pouze záznamy Odyssey. Vaše soubory zůstanou beze změny.",
+        ["ScanProgress"] = "Průběh prohledávání",
+        ["WaitingScan"] = "Čeká se na spuštění…",
+        ["Files"] = "SOUBORY",
+        ["Directories"] = "SLOŽKY",
+        ["Indexed"] = "ZAŘAZENO",
+        ["Observed"] = "VELIKOST",
+        ["Errors"] = "CHYBY",
+        ["Elapsed"] = "ČAS",
+        ["StartScanF5"] = "F5  Prohledat",
+        ["Cancel"] = "Zrušit",
+        ["IndexAnalysis"] = "PŘEHLED",
+        ["IndexedSize"] = "CELKOVÁ VELIKOST",
+        ["MissingFiles"] = "CHYBĚJÍCÍ",
+        ["ScanErrors"] = "CHYBY ČTENÍ",
+        ["SameSizeGroups"] = "MOŽNÉ DUPLIKÁTY",
+        ["Categories"] = "Kategorie",
+        ["SafeDuplicates"] = "Duplicitní soubory",
+        ["DuplicateHelp"] = "Odyssey porovnává pouze stejně velké soubory a žádnou kopii nemaže.",
+        ["ConfirmedGroups"] = "Potvrzené skupiny",
+        ["RunAnalysis"] = "Najít duplicity",
+        ["Refresh"] = "Obnovit",
+        ["SettingsSafety"] = "NASTAVENÍ",
+        ["Database"] = "Data Odyssey",
+        ["DatabaseHelp"] = "Jsou uložena v systémové složce aplikace, nikdy v prohledávaném místě.",
+        ["ReadOnlyGuarantee"] = "Ochrana proti změnám",
+        ["ReadOnlyHelp"] = "Odyssey prohledávaná místa pouze čte. Soubory nepřesouvá, nepřejmenovává, neupravuje ani nemaže.",
+        ["AutomaticDrives"] = "Automaticky rozpoznat a prohledat nové disky",
+        ["AutomaticDrivesHelp"] = "Odyssey sleduje disky, které již připojil operační systém. Systémové disky vynechá.",
+        ["ReadOnly"] = "POUZE ČTENÍ",
+        ["LocalIndex"] = "MÍSTNÍ INDEX",
+        ["TargetConfigF8"] = "F8  Nastavení míst",
+        ["AnalysisF7"] = "F7  Přehled",
+        ["SettingsF9"] = "F9  Nastavení",
+        ["OpenF3Short"] = "F3  Otevřít",
+        ["OpenFolderF4"] = "F4  Otevřít složku",
+        ["CopyPathF6"] = "F6  Kopírovat cestu",
+        ["StartScanF5Short"] = "F5  Prohledat",
+        ["ReadOnlyShort"] = "R",
+        ["Yes"] = "Ano",
+        ["No"] = "Ne",
+        ["File"] = "Soubor",
+        ["Directory"] = "Složka",
+        ["Documents"] = "Dokumenty",
+        ["Images"] = "Obrázky",
+        ["Videos"] = "Videa",
+        ["Audio"] = "Hudba a zvuk",
+        ["Archives"] = "Archivy",
+        ["SourceCode"] = "Zdrojové kódy",
+        ["Executables"] = "Programy",
+        ["Other"] = "Ostatní",
+        ["Ready"] = "Připraveno",
+        ["Running"] = "Probíhá",
+        ["Completed"] = "Dokončeno",
+        ["Cancelled"] = "Zrušeno",
+        ["Failed"] = "Chyba",
+        ["Cancelling"] = "Ruší se…",
+        ["Starting"] = "Odyssey se spouští…",
+        ["IndexLoaded"] = "Připraveno. Přidejte složku nebo hledejte v existujícím indexu.",
+        ["InitializationFailed"] = "Odyssey se nepodařilo spustit: {0}",
+        ["LoadTargetsFailed"] = "Nepodařilo se načíst složky: {0}",
+        ["TargetAdded"] = "Složka byla přidána. Vaše soubory se nezměnily.",
+        ["TargetAddFailed"] = "Složku se nepodařilo přidat: {0}",
+        ["TargetRemoved"] = "Složka byla od Odyssey odpojena. Vaše soubory se nezměnily.",
+        ["TargetSaved"] = "Nastavení složky bylo uloženo.",
+        ["TargetSaveFailed"] = "Nastavení se nepodařilo uložit: {0}",
+        ["ScanCompletedMessage"] = "Prohledávání dokončeno. Nyní můžete hledat.",
+        ["ScanEnded"] = "Prohledávání skončilo: {0}.",
+        ["ScanFailedMessage"] = "Prohledávání selhalo: {0}",
+        ["SearchFailed"] = "Hledání selhalo: {0}",
+        ["SearchResults"] = "Nalezeno: {0:N0} za {1:N0} ms.",
+        ["AnalysisFailed"] = "Přehled se nepodařilo načíst: {0}",
+        ["DuplicatesRunning"] = "Kontrolují se možné duplicity…",
+        ["DuplicatesDone"] = "Nalezeno skupin duplicit: {0:N0}. Žádný soubor nebyl změněn.",
+        ["DuplicatesFailed"] = "Kontrola duplicit selhala: {0}",
+        ["PathCopied"] = "Celá cesta byla zkopírována.",
+        ["Opened"] = "Položka byla otevřena systémem.",
+        ["FolderOpened"] = "Složka byla otevřena."
+        ,
+        ["PickFolderTitle"] = "Vyberte složku, kterou má Odyssey prohledat",
+        ["ClipboardUnavailable"] = "Schránka není dostupná.",
+        ["EntryUnavailable"] = "Zařazená položka už není dostupná.",
+        ["FolderUnavailable"] = "Nadřazená složka není dostupná."
+        ,
+        ["DriveDetected"] = "Byl rozpoznán nový disk: {0}. Spouští se bezpečné prohledávání.",
+        ["DriveDiscoveryFailed"] = "Automatické rozpoznání disků selhalo: {0}",
+        ["BackgroundWatching"] = "Na pozadí: sledují se schválená místa",
+        ["BackgroundScanning"] = "Na pozadí: kontrolují se změny v {0}",
+        ["BackgroundContent"] = "Na pozadí: zaindexován obsah {0:N0} souborů",
+        ["BackgroundMaintenance"] = "Na pozadí: optimalizuje se místní index",
+        ["BackgroundWaiting"] = "Na pozadí: čeká se na {0}",
+        ["BackgroundFailed"] = "Úloha na pozadí: {0}"
+        ,
+        ["BackgroundAutomationTitle"] = "AUTOMATIZACE NA POZADÍ",
+        ["BackgroundAutomationHelp"] = "Schválená místa jsou sledována pouze pro čtení. Změny se slučují, obsah dokumentů se indexuje místně, přerušená práce automaticky pokračuje a údržba ustupuje práci uživatele."
+        ,
+        ["OcrReady"] = "OCR připraveno: {0}",
+        ["OcrUnavailable"] = "OCR není dostupné: nainstalujte Tesseract s českými a anglickými jazykovými daty a restartujte Odyssey",
+        ["OcrLanguages"] = "čeština + angličtina"
+        ,
+        ["FileManagement"] = "SPRÁVA SOUBORŮ",
+        ["FileManagementHelp"] = "Správa souborů je zapnutá. Odyssey mění soubory jen na výslovný pokyn a nikdy bez upozornění nepřepíše existující cíl.",
+        ["EnableFileManagement"] = "Zapnout správu souborů",
+        ["EnableReadOnly"] = "Přepnout pouze na čtení",
+        ["EnableFileManagementTitle"] = "Zapnout správu souborů?",
+        ["EnableFileManagementWarning"] = "Tento režim dovolí Odyssey vytvářet, kopírovat, přesouvat a přejmenovávat položky a přesouvat je do koše. Změny se projeví ve skutečných souborech. Existující cíle se nepřepisují.",
+        ["ReadOnlyEnabled"] = "Ochrana pouze pro čtení je zapnutá.",
+        ["FileManagementEnabled"] = "Správa souborů je zapnutá. Změny se nyní projeví ve skutečných souborech.",
+        ["Confirm"] = "Potvrdit",
+        ["PickDestinationTitle"] = "Vyberte cílovou složku",
+        ["CreateFolder"] = "Vytvořit složku",
+        ["CreateFolderTitle"] = "Nová složka",
+        ["CreateFolderPrompt"] = "Zadejte název nové složky:",
+        ["FolderCreated"] = "Složka byla vytvořena.",
+        ["Rename"] = "Přejmenovat",
+        ["RenameTitle"] = "Přejmenovat položku",
+        ["RenamePrompt"] = "Zadejte nový název:",
+        ["RenameCompleted"] = "Položka byla přejmenována.",
+        ["Copy"] = "Kopírovat",
+        ["CopyCompleted"] = "Kopírování bylo dokončeno.",
+        ["Move"] = "Přesunout",
+        ["MoveTitle"] = "Přesunout položku",
+        ["MoveConfirmation"] = "Přesunout tuto položku?\n\n{0}\n\ndo\n\n{1}",
+        ["MoveCompleted"] = "Přesun byl dokončen.",
+        ["MoveToTrash"] = "Přesunout do koše",
+        ["TrashTitle"] = "Přesunout položku do koše?",
+        ["TrashConfirmation"] = "Položka bude přesunuta do systémového koše:\n\n{0}",
+        ["TrashCompleted"] = "Položka byla přesunuta do koše.",
+        ["Undo"] = "Vrátit zpět",
+        ["UndoCompleted"] = "Poslední operace byla vrácena zpět.",
+        ["NothingToUndo"] = "Není k dispozici operace, kterou lze bezpečně vrátit.",
+        ["OperationStarting"] = "Připravuje se operace se soubory…",
+        ["OperationProgress"] = "Přeneseno {0} z {1}",
+        ["OperationProgressUnknown"] = "Pracuje se s {0}",
+        ["OperationCancelled"] = "Operace se soubory byla zrušena.",
+        ["OperationFailed"] = "Operace se soubory selhala: {0}",
+        ["CancelOperation"] = "Zrušit operaci",
+        ["FileOperations"] = "OPERACE SE SOUBORY",
+        ["OperationHistory"] = "Nedávné operace",
+        ["NoOperationHistory"] = "V tomto spuštění zatím nebyla provedena žádná operace se soubory.",
+        ["ReadOnlyModeLabel"] = "Aktuální režim",
+        ["FileManagementSafety"] = "Výchozí je pouze čtení. Místo trvalého smazání se používá koš a konflikt v cíli operaci zastaví.",
+        ["UnmountDrive"] = "Odpojit disk",
+        ["EjectDrive"] = "Vysunout disk",
+        ["UnmountDriveTitle"] = "Odpojit disk?",
+        ["EjectDriveTitle"] = "Vysunout disk?",
+        ["UnmountDriveConfirmation"] = "Dokončit aktivní práci a bezpečně odpojit {0}?",
+        ["EjectDriveConfirmation"] = "Dokončit aktivní práci, odpojit a vypnout {0}?",
+        ["DriveUnmounted"] = "Disk byl bezpečně odpojen.",
+        ["DriveEjected"] = "Disk byl bezpečně vysunut.",
+        ["DriveOperationFailed"] = "Operace s diskem selhala: {0}",
+        ["DiskActionsHelp"] = "Odpojení a vysunutí provádí operační systém. Formátování a změny oddílů záměrně nejsou dostupné.",
+        ["RenameF2"] = "F2  Přejmenovat",
+        ["CopyF5"] = "F5  Kopírovat",
+        ["MoveF6"] = "F6  Přesunout",
+        ["NewFolderF7"] = "F7  Nová složka",
+        ["TrashF8"] = "F8  Do koše"
+        ,
+        ["CurrentFolder"] = "AKTUÁLNÍ SLOŽKA",
+        ["Up"] = "Nahoru",
+        ["FolderItems"] = "Položek ve složce: {0:N0}.",
+        ["BrowseFailed"] = "Složku se nepodařilo otevřít: {0}"
+        ,
+        ["ActivePanel"] = "AKTIVNÍ",
+        ["Name"] = "Název",
+        ["Attributes"] = "Atrib.",
+        ["CopyBatchCompleted"] = "Zkopírováno položek: {0:N0}.",
+        ["MoveBatchConfirmation"] = "Přesunout {0:N0} vybraných položek do:\n\n{1}",
+        ["MoveBatchCompleted"] = "Přesunuto položek: {0:N0}.",
+        ["TrashBatchConfirmation"] = "Přesunout {0:N0} vybraných položek do systémového koše?",
+        ["TrashBatchCompleted"] = "Do koše přesunuto položek: {0:N0}."
+        ,
+        ["DestinationConflict"] = "Operace byla zastavena. V cíli už položka existuje: {0}"
+    };
+}
+
+public sealed class LocalizedEnumConverter : IValueConverter
+{
+    public static LocalizedEnumConverter Instance { get; } = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        LocalizationService.Current?.TranslateEnum(value) ?? value?.ToString() ?? string.Empty;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+public sealed class ProbabilityConverter : IValueConverter
+{
+    public static ProbabilityConverter Instance { get; } = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        var score = value is double number ? Math.Clamp(number, 0d, 1d) : 0d;
+        var percentage = Math.Round(score * 100d);
+        return LocalizationService.Current?.Format("MatchProbabilityShort", percentage) ?? $"{percentage:0}%";
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}

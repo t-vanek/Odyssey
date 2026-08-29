@@ -1,0 +1,319 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Odyssey.Desktop" xmlns:core="using:Odyssey.Core"
+        xmlns:primitives="using:Avalonia.Controls.Primitives"
+        x:Class="Odyssey.Desktop.MainWindow" x:DataType="vm:MainViewModel"
+        Title="{DynamicResource WindowTitle}" Icon="/Assets/odyssey-icon.png"
+        Width="1540" Height="940" MinWidth="1120" MinHeight="740">
+  <Window.KeyBindings>
+    <KeyBinding Gesture="F2" Command="{Binding RenameEntryCommand}" />
+    <KeyBinding Gesture="F3" Command="{Binding OpenResultCommand}" />
+    <KeyBinding Gesture="F4" Command="{Binding OpenFolderCommand}" />
+    <KeyBinding Gesture="F5" Command="{Binding CopyEntryCommand}" />
+    <KeyBinding Gesture="F6" Command="{Binding MoveEntryCommand}" />
+    <KeyBinding Gesture="F7" Command="{Binding CreateFolderCommand}" />
+    <KeyBinding Gesture="F8" Command="{Binding TrashEntryCommand}" />
+    <KeyBinding Gesture="F9" Command="{Binding ShowPageCommand}" CommandParameter="Settings" />
+    <KeyBinding Gesture="Ctrl+F" Command="{Binding ShowPageCommand}" CommandParameter="Search" />
+  </Window.KeyBindings>
+
+  <Grid Background="#090B0E">
+    <Grid IsVisible="{Binding IsRescuePage}" RowDefinitions="78,*">
+      <Border Background="#0E1014" BorderBrush="#20242A" BorderThickness="0,0,0,1" Padding="34,0">
+        <Grid MaxWidth="1240" HorizontalAlignment="Stretch" ColumnDefinitions="*,Auto,*">
+          <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="2">
+            <TextBlock Text="ODYSSEY" FontSize="18" FontWeight="SemiBold" LetterSpacing="3" HorizontalAlignment="Center" />
+            <TextBlock Text="{DynamicResource RescueProductLine}" Classes="muted" FontSize="11" HorizontalAlignment="Center" />
+          </StackPanel>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="10">
+            <ComboBox Classes="navControl" Width="118" ItemsSource="{Binding Localization.Languages}" SelectedItem="{Binding Localization.SelectedLanguage}" VerticalAlignment="Center">
+              <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:LanguageOption"><TextBlock Text="{Binding Name}" /></DataTemplate></ComboBox.ItemTemplate>
+            </ComboBox>
+            <Button Classes="quiet navButton" Content="{DynamicResource ExpertView}" Command="{Binding ShowPageCommand}" CommandParameter="Files" VerticalAlignment="Center" />
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <Grid Grid.Row="1" MaxWidth="1240" HorizontalAlignment="Stretch" RowDefinitions="Auto,Auto,*" Margin="34,18,34,30">
+        <StackPanel HorizontalAlignment="Center" MaxWidth="860" Spacing="9">
+          <Grid Width="430" Height="190">
+            <Ellipse Width="410" Height="175" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.6">
+              <Ellipse.Fill>
+                <RadialGradientBrush>
+                  <GradientStop Color="#332613" Offset="0" />
+                  <GradientStop Color="#00110E09" Offset="1" />
+                </RadialGradientBrush>
+              </Ellipse.Fill>
+            </Ellipse>
+            <Image Source="/Assets/odyssey-icon-source.png" Width="310" Height="190" Stretch="Uniform" HorizontalAlignment="Center" />
+          </Grid>
+          <TextBlock Text="{DynamicResource RescueTitle}" FontSize="42" FontWeight="SemiBold" LetterSpacing="-0.4" HorizontalAlignment="Center" TextAlignment="Center" />
+          <TextBlock Text="{DynamicResource RescueSubtitle}" Classes="muted" FontSize="16" LineHeight="24" MaxWidth="760" TextAlignment="Center" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Margin="120,22,120,20" Spacing="12" ZIndex="30">
+          <Grid>
+            <Border Classes="searchSurface">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                <TextBox x:Name="RescueSearchBox" Classes="rescueSearch" Text="{Binding SearchText, Mode=TwoWay}" PlaceholderText="{DynamicResource RescueSearchPlaceholder}" />
+                <Button Grid.Column="1" Classes="primary" Content="{DynamicResource StartSearching}" Command="{Binding RescueSearchCommand}" MinWidth="160" />
+              </Grid>
+            </Border>
+            <primitives:Popup IsOpen="{Binding HasSearchSuggestions}"
+                              PlacementTarget="{Binding ElementName=RescueSearchBox}"
+                              Placement="BottomEdgeAlignedLeft"
+                              VerticalOffset="7"
+                              IsLightDismissEnabled="False">
+              <Border Classes="suggestionSurface" Width="{Binding Bounds.Width, ElementName=RescueSearchBox}">
+                <ListBox x:Name="SearchSuggestionList" Classes="suggestions" ItemsSource="{Binding SearchSuggestions}" SelectionChanged="SearchSuggestionSelected">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="core:SearchSuggestion">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="14">
+                        <TextBlock Text="{Binding Text}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding Kind, Converter={x:Static vm:LocalizedEnumConverter.Instance}}" Classes="muted" FontSize="11" VerticalAlignment="Center" />
+                      </Grid>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </Border>
+            </primitives:Popup>
+          </Grid>
+          <ProgressBar IsVisible="{Binding IsSearching}" IsIndeterminate="True" Height="3" Margin="4,0" />
+          <StackPanel HorizontalAlignment="Center" Spacing="3">
+            <TextBlock Text="{DynamicResource RescueSearchHint}" Classes="muted" TextAlignment="Center" />
+            <TextBlock Text="{Binding LocationsSummary}" Classes="muted" TextAlignment="Center" HorizontalAlignment="Center" />
+          </StackPanel>
+        </StackPanel>
+
+        <Grid Grid.Row="2">
+          <Border IsVisible="{Binding HasNoTargets}" Classes="rescueCard" MaxWidth="720" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="30">
+            <StackPanel Spacing="12" HorizontalAlignment="Center">
+              <Border Classes="statusIcon" HorizontalAlignment="Center"><TextBlock Text="+" FontSize="24" Foreground="#D5B36C" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
+              <TextBlock Text="{Binding RescueStatusTitle}" FontSize="25" FontWeight="SemiBold" TextAlignment="Center" />
+              <TextBlock Text="{Binding RescueStatusDetail}" Classes="muted" FontSize="14" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="560" />
+              <Button Classes="primary" Content="{DynamicResource AddSearchLocation}" Command="{Binding AddTargetCommand}" HorizontalAlignment="Center" Margin="0,6,0,0" />
+            </StackPanel>
+          </Border>
+
+          <Border IsVisible="{Binding ShowRescueWelcome}" Classes="rescueCard" MaxWidth="720" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28">
+            <StackPanel Spacing="11" HorizontalAlignment="Center">
+              <Border Classes="statusIcon" HorizontalAlignment="Center"><TextBlock Text="✦" FontSize="18" Foreground="#D5B36C" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
+              <TextBlock Text="{Binding RescueStatusTitle}" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center" />
+              <TextBlock Text="{Binding RescueStatusDetail}" Classes="muted" FontSize="14" TextWrapping="Wrap" TextAlignment="Center" />
+              <Border Classes="tipCard" Margin="0,5,0,0">
+                <StackPanel Spacing="5" HorizontalAlignment="Center">
+                  <TextBlock Text="{DynamicResource RescueTipTitle}" FontWeight="SemiBold" TextAlignment="Center" HorizontalAlignment="Center" />
+                  <TextBlock Text="{DynamicResource RescueTipText}" Classes="muted" TextWrapping="Wrap" TextAlignment="Center" />
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </Border>
+
+          <Border IsVisible="{Binding IsSearching}" Classes="rescueCard" MaxWidth="720" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="34">
+            <StackPanel Spacing="12">
+              <ProgressBar Width="160" Height="3" IsIndeterminate="True" HorizontalAlignment="Center" Margin="0,0,0,5" />
+              <TextBlock Text="{Binding RescueStatusTitle}" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center" />
+              <TextBlock Text="{Binding RescueStatusDetail}" Classes="muted" FontSize="14" TextAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <Border IsVisible="{Binding ShowRescueNoResults}" Classes="rescueCard" MaxWidth="720" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="34">
+            <StackPanel Spacing="12">
+              <Border Classes="statusIcon" HorizontalAlignment="Center"><TextBlock Text="…" FontSize="22" Foreground="#D5B36C" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
+              <TextBlock Text="{Binding RescueStatusTitle}" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center" />
+              <TextBlock Text="{Binding RescueStatusDetail}" Classes="muted" FontSize="14" TextWrapping="Wrap" TextAlignment="Center" />
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,8,0,0">
+                <Button Classes="primary" Content="{DynamicResource SearchMoreThoroughly}" Command="{Binding StartScanCommand}" />
+                <Button Classes="quiet" Content="{DynamicResource AddAnotherLocation}" Command="{Binding AddTargetCommand}" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <Border IsVisible="{Binding HasSearchError}" Classes="rescueCard" MaxWidth="720" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="34">
+            <StackPanel Spacing="12">
+              <Border Classes="statusIcon" HorizontalAlignment="Center"><TextBlock Text="!" FontSize="22" Foreground="#D5B36C" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
+              <TextBlock Text="{Binding RescueStatusTitle}" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center" />
+              <TextBlock Text="{Binding RescueStatusDetail}" Classes="muted" FontSize="14" TextWrapping="Wrap" TextAlignment="Center" />
+              <Button Classes="primary" Content="{DynamicResource TrySearchAgain}" Command="{Binding RescueSearchCommand}" HorizontalAlignment="Center" Margin="0,8,0,0" />
+            </StackPanel>
+          </Border>
+
+          <Grid IsVisible="{Binding ShowRescueResults}" ColumnDefinitions="440,18,*">
+            <Border Classes="rescueCard" Padding="0">
+              <Grid RowDefinitions="Auto,*">
+                <StackPanel Margin="18,16,18,11" Spacing="3">
+                  <TextBlock Text="{Binding RescueStatusTitle}" FontSize="20" FontWeight="SemiBold" />
+                  <TextBlock Text="{Binding RescueStatusDetail}" Classes="muted" TextWrapping="Wrap" />
+                </StackPanel>
+                <ListBox x:Name="RescueResultList" Grid.Row="1" Classes="rescueResults" ItemsSource="{Binding SearchResults}" SelectedItem="{Binding SelectedResult}">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="core:SearchResult">
+                      <Grid RowDefinitions="Auto,Auto,Auto" Margin="12,9" RowSpacing="3">
+                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                          <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                          <Border Grid.Column="1" Classes="probabilityBadge">
+                            <TextBlock Text="{Binding Score, Converter={x:Static vm:ProbabilityConverter.Instance}}" Foreground="#E1C17B" FontSize="10" FontWeight="SemiBold" />
+                          </Border>
+                          <TextBlock Grid.Column="2" Text="{Binding ModifiedAt}" Classes="muted" FontSize="10" VerticalAlignment="Center" />
+                        </Grid>
+                        <TextBlock Grid.Row="1" Text="{Binding FullPath}" Classes="muted" FontSize="10" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Row="2" Text="{Binding MatchSnippet}" Foreground="#D8B873" FontSize="11" TextTrimming="CharacterEllipsis" />
+                      </Grid>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </Grid>
+            </Border>
+
+            <Border Grid.Column="2" Classes="rescueCard" Padding="28">
+              <Grid>
+                <StackPanel IsVisible="{Binding HasNoSelectedResult}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="7">
+                  <TextBlock Text="{DynamicResource SelectResultTitle}" FontSize="19" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                  <TextBlock Text="{DynamicResource SelectResultDetail}" Classes="muted" TextAlignment="Center" />
+                </StackPanel>
+                <StackPanel IsVisible="{Binding HasSelectedResult}" Spacing="12">
+                  <TextBlock Text="{Binding SelectedResult.Name}" FontSize="24" FontWeight="SemiBold" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding SelectedResult.FullPath}" Classes="muted" TextWrapping="Wrap" />
+                  <Border Classes="confidenceCard">
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20">
+                      <StackPanel MinWidth="108" Spacing="2">
+                        <TextBlock Text="{DynamicResource MatchProbabilityTitle}" Classes="muted" FontSize="11" />
+                        <TextBlock Text="{Binding SelectedResultProbabilityDisplay}" Foreground="#E1C17B" FontSize="30" FontWeight="SemiBold" />
+                      </StackPanel>
+                      <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="5">
+                        <TextBlock Text="{Binding SelectedResultConfidenceDetail}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{DynamicResource MatchProbabilityHelp}" Classes="muted" FontSize="11" TextWrapping="Wrap" />
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+                  <Border Classes="tipCard" IsVisible="{Binding HasSelectedMatch}">
+                    <StackPanel Spacing="5">
+                      <TextBlock Text="{DynamicResource WhyThisResult}" FontWeight="SemiBold" />
+                      <TextBlock Text="{Binding SelectedResult.MatchSnippet}" Foreground="#E8CA86" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Border>
+                  <Grid ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="8">
+                    <TextBlock Text="{DynamicResource Type}" Classes="muted" />
+                    <TextBlock Grid.Column="1" Text="{Binding SelectedResult.Type, Converter={x:Static vm:LocalizedEnumConverter.Instance}}" />
+                    <TextBlock Grid.Column="2" Text="{DynamicResource Size}" Classes="muted" />
+                    <TextBlock Grid.Column="3" Text="{Binding SelectedResultSizeDisplay}" />
+                  </Grid>
+                  <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                    <Button Classes="primary" Content="{DynamicResource OpenSafely}" Command="{Binding OpenResultCommand}" />
+                    <Button Classes="quiet" Content="{DynamicResource ShowInFolder}" Command="{Binding OpenFolderCommand}" />
+                  </StackPanel>
+                  <TextBlock Text="{DynamicResource PreviewSafetyNote}" Classes="muted" TextWrapping="Wrap" />
+                </StackPanel>
+              </Grid>
+            </Border>
+          </Grid>
+        </Grid>
+      </Grid>
+
+    </Grid>
+
+    <Grid IsVisible="{Binding IsExpertPage}" RowDefinitions="34,52,44,*,30,48">
+    <Border Grid.Row="0" Background="#0D1014" BorderBrush="#24282F" BorderThickness="0,0,0,1" Padding="5,1">
+      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+        <Button Classes="menu" Content="{DynamicResource MenuRescue}" Command="{Binding ShowPageCommand}" CommandParameter="Rescue" />
+        <Button Classes="menu" Classes.active="{Binding IsFilesPage}" Content="{DynamicResource MenuFiles}" Command="{Binding ShowPageCommand}" CommandParameter="Files" />
+        <Button Classes="menu" Classes.active="{Binding IsSearchPage}" Content="{DynamicResource MenuSearch}" Command="{Binding ShowPageCommand}" CommandParameter="Search" />
+        <Button Classes="menu" Classes.active="{Binding IsTargetsPage}" Content="{DynamicResource MenuTarget}" Command="{Binding ShowPageCommand}" CommandParameter="Targets" />
+        <Button Classes="menu" Classes.active="{Binding IsAnalysisPage}" Content="{DynamicResource MenuAnalysis}" Command="{Binding ShowPageCommand}" CommandParameter="Analysis" />
+        <Button Classes="menu" Classes.active="{Binding IsSettingsPage}" Content="{DynamicResource MenuSettings}" Command="{Binding ShowPageCommand}" CommandParameter="Settings" />
+      </StackPanel>
+    </Border>
+
+    <Border Grid.Row="1" Background="#0A0D11" BorderBrush="#24282F" BorderThickness="0,0,0,1" Padding="8,7">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,8,Auto,Auto,*,Auto,Auto" VerticalAlignment="Center">
+        <Button Classes="toolbar" Content="{DynamicResource MenuFiles}" Command="{Binding ShowPageCommand}" CommandParameter="Files" />
+        <Button Grid.Column="1" Classes="toolbar" Content="{DynamicResource Find}" Command="{Binding ShowPageCommand}" CommandParameter="Search" />
+        <Button Grid.Column="2" Classes="toolbar" Content="{DynamicResource Scan}" Command="{Binding StartScanCommand}" />
+        <Button Grid.Column="3" Classes="toolbar" Content="{DynamicResource Analyze}" Command="{Binding ShowPageCommand}" CommandParameter="Analysis" />
+        <Button Grid.Column="5" Classes="toolbar" Content="{DynamicResource Undo}" Command="{Binding UndoFileOperationCommand}" />
+        <Button Grid.Column="6" Classes="toolbar" Content="{Binding AccessModeDisplay}" Command="{Binding ToggleAccessModeCommand}" />
+        <ComboBox Grid.Column="8" Width="112" Margin="0,0,10,0" ItemsSource="{Binding Localization.Languages}" SelectedItem="{Binding Localization.SelectedLanguage}">
+          <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:LanguageOption"><TextBlock Text="{Binding Name}" /></DataTemplate></ComboBox.ItemTemplate>
+        </ComboBox>
+        <StackPanel Grid.Column="9" VerticalAlignment="Center">
+          <TextBlock Text="ODYSSEY" Classes="header" FontSize="13" LetterSpacing="1" HorizontalAlignment="Center" />
+          <TextBlock Text="{DynamicResource Tagline}" Classes="muted" FontSize="9" HorizontalAlignment="Center" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="2" Background="#111419" BorderBrush="#292E35" BorderThickness="0,0,0,1" Padding="8,6">
+      <Grid ColumnDefinitions="98,*,90,320,82" ColumnSpacing="7">
+        <Border Background="#1A1E24" BorderBrush="#303640" BorderThickness="1" CornerRadius="8" Padding="9,4"><TextBlock Text="{DynamicResource ActivePanel}" Classes="columnHeader" VerticalAlignment="Center" /></Border>
+        <TextBox Grid.Column="1" Classes="compact" Text="{Binding ActivePane.CurrentPath}" IsReadOnly="True" />
+        <TextBlock Grid.Column="2" Text="{Binding ActivePane.SelectionSummary}" Classes="muted" VerticalAlignment="Center" HorizontalAlignment="Right" />
+        <TextBox Grid.Column="3" Classes="compact" Text="{Binding SearchText, Mode=TwoWay}" PlaceholderText="{DynamicResource SearchPlaceholder}" />
+        <Button Grid.Column="4" Content="{DynamicResource SearchButton}" Command="{Binding SearchNowCommand}" />
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="3" Margin="8">
+      <Grid IsVisible="{Binding IsFilesPage}" ColumnDefinitions="*,8,*">
+        <Grid IsVisible="{Binding HasNoTargets}" Grid.ColumnSpan="3" ZIndex="20" Background="#0D1014">
+          <Border Classes="group" Width="530" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28">
+            <StackPanel Spacing="12"><TextBlock Text="{DynamicResource Welcome}" Classes="header" FontSize="15" HorizontalAlignment="Center" /><TextBlock Text="{DynamicResource AddFolderToBegin}" FontSize="23" FontWeight="SemiBold" HorizontalAlignment="Center" /><TextBlock Text="{DynamicResource Intro}" TextWrapping="Wrap" TextAlignment="Center" Classes="muted" /><Button Content="{DynamicResource AddScanTarget}" Command="{Binding AddTargetCommand}" HorizontalAlignment="Center" Padding="18,7" /></StackPanel>
+          </Border>
+        </Grid>
+
+        <Border Grid.Column="0" Classes="panel filePane" Classes.active="{Binding LeftPane.IsActive}">
+          <Grid RowDefinitions="40,38,30,*,32">
+            <Border Classes="panelHeader"><Grid ColumnDefinitions="38,*,Auto,34" ColumnSpacing="5"><Button Content="L" Command="{Binding ActivatePaneCommand}" CommandParameter="Left" Padding="7,2" /><ComboBox Grid.Column="1" ItemsSource="{Binding Targets}" SelectedItem="{Binding LeftPane.SelectedTarget}"><ComboBox.ItemTemplate><DataTemplate x:DataType="core:ScanTarget"><TextBlock Text="{Binding RootPath}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate></ComboBox><TextBlock Grid.Column="2" Text="{Binding LeftPane.SpaceDisplay}" Classes="muted" VerticalAlignment="Center" /><Button Grid.Column="3" Content="↻" Command="{Binding RefreshLeftPaneCommand}" Padding="5,2" /></Grid></Border>
+            <Grid Grid.Row="1" ColumnDefinitions="34,58,34,*" Margin="4,3" ColumnSpacing="4"><Button Content="‹" Command="{Binding NavigateLeftBackCommand}" /><Button Grid.Column="1" Content="{DynamicResource Up}" Command="{Binding NavigateLeftUpCommand}" /><Button Grid.Column="2" Content="›" Command="{Binding NavigateLeftForwardCommand}" /><TextBox Grid.Column="3" Classes="compact" Text="{Binding LeftPane.CurrentPath}" IsReadOnly="True" /></Grid>
+            <Border Grid.Row="2" Background="#181C22" BorderBrush="#2B3038" BorderThickness="0,1,0,1" Padding="7,5"><Grid ColumnDefinitions="26,*,58,88,128,54"><TextBlock /><TextBlock Grid.Column="1" Text="{DynamicResource Name}" Classes="columnHeader" /><TextBlock Grid.Column="2" Text="{DynamicResource Extension}" Classes="columnHeader" /><TextBlock Grid.Column="3" Text="{DynamicResource Size}" Classes="columnHeader" HorizontalAlignment="Right" /><TextBlock Grid.Column="4" Text="{DynamicResource Modified}" Classes="columnHeader" /><TextBlock Grid.Column="5" Text="{DynamicResource Attributes}" Classes="columnHeader" /></Grid></Border>
+            <ListBox x:Name="LeftFileList" Grid.Row="3" ItemsSource="{Binding LeftPane.Entries}" SelectionMode="Multiple" SelectionChanged="LeftSelectionChanged" DoubleTapped="LeftListDoubleTapped">
+              <ListBox.ContextFlyout><MenuFlyout><MenuItem Header="{DynamicResource OpenF3}" Click="OpenMenuClicked" /><MenuItem Header="{DynamicResource Rename}" Click="RenameMenuClicked" /><MenuItem Header="{DynamicResource Copy}" Click="CopyMenuClicked" /><MenuItem Header="{DynamicResource Move}" Click="MoveMenuClicked" /><MenuItem Header="{DynamicResource MoveToTrash}" Click="TrashMenuClicked" /><MenuItem Header="{DynamicResource CopyFullPath}" Click="CopyPathMenuClicked" /></MenuFlyout></ListBox.ContextFlyout>
+              <ListBox.ItemTemplate><DataTemplate x:DataType="vm:BrowserEntry"><Grid ColumnDefinitions="26,*,58,88,128,54" Margin="2,1" MinHeight="27"><TextBlock Text="{Binding Type, Converter={x:Static vm:LocalizedEnumConverter.Instance}}" FontSize="8" Foreground="#79B8F3" VerticalAlignment="Center" /><TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" /><TextBlock Grid.Column="2" Text="{Binding Extension}" Classes="muted" VerticalAlignment="Center" /><TextBlock Grid.Column="3" Text="{Binding Size}" HorizontalAlignment="Right" VerticalAlignment="Center" /><TextBlock Grid.Column="4" Text="{Binding ModifiedAt}" Classes="muted" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" /><TextBlock Grid.Column="5" Text="{Binding Attributes}" Classes="muted" VerticalAlignment="Center" /></Grid></DataTemplate></ListBox.ItemTemplate>
+            </ListBox>
+            <Border Grid.Row="4" Background="#0A0D11" BorderBrush="#272C33" BorderThickness="0,1,0,0" Padding="8,5"><Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8"><TextBlock Text="{Binding LeftPane.SelectedEntry.FullPath}" Classes="muted" TextTrimming="CharacterEllipsis" /><TextBlock Grid.Column="1" Text="…" IsVisible="{Binding LeftPane.IsLoading}" Foreground="#D5B36C" /><TextBlock Grid.Column="2" Text="{Binding LeftPane.SelectionSummary}" FontWeight="SemiBold" /></Grid></Border>
+          </Grid>
+        </Border>
+
+        <GridSplitter Grid.Column="1" Background="#2B3038" ResizeDirection="Columns" />
+
+        <Border Grid.Column="2" Classes="panel filePane" Classes.active="{Binding RightPane.IsActive}">
+          <Grid RowDefinitions="40,38,30,*,32">
+            <Border Classes="panelHeader"><Grid ColumnDefinitions="38,*,Auto,34" ColumnSpacing="5"><Button Content="R" Command="{Binding ActivatePaneCommand}" CommandParameter="Right" Padding="7,2" /><ComboBox Grid.Column="1" ItemsSource="{Binding Targets}" SelectedItem="{Binding RightPane.SelectedTarget}"><ComboBox.ItemTemplate><DataTemplate x:DataType="core:ScanTarget"><TextBlock Text="{Binding RootPath}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate></ComboBox><TextBlock Grid.Column="2" Text="{Binding RightPane.SpaceDisplay}" Classes="muted" VerticalAlignment="Center" /><Button Grid.Column="3" Content="↻" Command="{Binding RefreshRightPaneCommand}" Padding="5,2" /></Grid></Border>
+            <Grid Grid.Row="1" ColumnDefinitions="34,58,34,*" Margin="4,3" ColumnSpacing="4"><Button Content="‹" Command="{Binding NavigateRightBackCommand}" /><Button Grid.Column="1" Content="{DynamicResource Up}" Command="{Binding NavigateRightUpCommand}" /><Button Grid.Column="2" Content="›" Command="{Binding NavigateRightForwardCommand}" /><TextBox Grid.Column="3" Classes="compact" Text="{Binding RightPane.CurrentPath}" IsReadOnly="True" /></Grid>
+            <Border Grid.Row="2" Background="#181C22" BorderBrush="#2B3038" BorderThickness="0,1,0,1" Padding="7,5"><Grid ColumnDefinitions="26,*,58,88,128,54"><TextBlock /><TextBlock Grid.Column="1" Text="{DynamicResource Name}" Classes="columnHeader" /><TextBlock Grid.Column="2" Text="{DynamicResource Extension}" Classes="columnHeader" /><TextBlock Grid.Column="3" Text="{DynamicResource Size}" Classes="columnHeader" HorizontalAlignment="Right" /><TextBlock Grid.Column="4" Text="{DynamicResource Modified}" Classes="columnHeader" /><TextBlock Grid.Column="5" Text="{DynamicResource Attributes}" Classes="columnHeader" /></Grid></Border>
+            <ListBox x:Name="RightFileList" Grid.Row="3" ItemsSource="{Binding RightPane.Entries}" SelectionMode="Multiple" SelectionChanged="RightSelectionChanged" DoubleTapped="RightListDoubleTapped">
+              <ListBox.ContextFlyout><MenuFlyout><MenuItem Header="{DynamicResource OpenF3}" Click="OpenMenuClicked" /><MenuItem Header="{DynamicResource Rename}" Click="RenameMenuClicked" /><MenuItem Header="{DynamicResource Copy}" Click="CopyMenuClicked" /><MenuItem Header="{DynamicResource Move}" Click="MoveMenuClicked" /><MenuItem Header="{DynamicResource MoveToTrash}" Click="TrashMenuClicked" /><MenuItem Header="{DynamicResource CopyFullPath}" Click="CopyPathMenuClicked" /></MenuFlyout></ListBox.ContextFlyout>
+              <ListBox.ItemTemplate><DataTemplate x:DataType="vm:BrowserEntry"><Grid ColumnDefinitions="26,*,58,88,128,54" Margin="2,1" MinHeight="27"><TextBlock Text="{Binding Type, Converter={x:Static vm:LocalizedEnumConverter.Instance}}" FontSize="8" Foreground="#79B8F3" VerticalAlignment="Center" /><TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" /><TextBlock Grid.Column="2" Text="{Binding Extension}" Classes="muted" VerticalAlignment="Center" /><TextBlock Grid.Column="3" Text="{Binding Size}" HorizontalAlignment="Right" VerticalAlignment="Center" /><TextBlock Grid.Column="4" Text="{Binding ModifiedAt}" Classes="muted" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" /><TextBlock Grid.Column="5" Text="{Binding Attributes}" Classes="muted" VerticalAlignment="Center" /></Grid></DataTemplate></ListBox.ItemTemplate>
+            </ListBox>
+            <Border Grid.Row="4" Background="#0A0D11" BorderBrush="#272C33" BorderThickness="0,1,0,0" Padding="8,5"><Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8"><TextBlock Text="{Binding RightPane.SelectedEntry.FullPath}" Classes="muted" TextTrimming="CharacterEllipsis" /><TextBlock Grid.Column="1" Text="…" IsVisible="{Binding RightPane.IsLoading}" Foreground="#D5B36C" /><TextBlock Grid.Column="2" Text="{Binding RightPane.SelectionSummary}" FontWeight="SemiBold" /></Grid></Border>
+          </Grid>
+        </Border>
+      </Grid>
+
+      <Border IsVisible="{Binding IsSearchPage}" Classes="panel">
+        <Grid RowDefinitions="34,Auto,27,*,122">
+          <Border Background="#111419" BorderBrush="#292E35" BorderThickness="0,0,0,1" Padding="7,5"><Grid ColumnDefinitions="180,120,*,Auto,Auto" ColumnSpacing="7"><ComboBox ItemsSource="{Binding CategoryFilters}" SelectedItem="{Binding SelectedCategory}"><ComboBox.ItemTemplate><DataTemplate x:DataType="vm:CategoryFilter"><TextBlock Text="{Binding Name}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox><TextBox Grid.Column="1" Classes="compact" Text="{Binding ExtensionFilter}" PlaceholderText="{DynamicResource Extension}" /><CheckBox Grid.Column="3" Content="{DynamicResource SelectedTargetOnly}" IsChecked="{Binding FilterSelectedTarget}" VerticalAlignment="Center" /><ToggleButton Grid.Column="4" Content="{DynamicResource AdvancedFilters}" IsChecked="{Binding ShowAdvancedFilters}" /></Grid></Border>
+          <Border Grid.Row="1" IsVisible="{Binding ShowAdvancedFilters}" Background="#0F1216" Padding="7,5"><Grid ColumnDefinitions="130,130,145,145,*" ColumnSpacing="6"><TextBox Classes="compact" Text="{Binding MinimumSize}" PlaceholderText="{DynamicResource MinimumBytes}" /><TextBox Grid.Column="1" Classes="compact" Text="{Binding MaximumSize}" PlaceholderText="{DynamicResource MaximumBytes}" /><TextBox Grid.Column="2" Classes="compact" Text="{Binding ModifiedFrom}" PlaceholderText="{DynamicResource ModifiedFrom}" /><TextBox Grid.Column="3" Classes="compact" Text="{Binding ModifiedTo}" PlaceholderText="{DynamicResource ModifiedTo}" /></Grid></Border>
+          <Border Grid.Row="2" Background="#181C22" BorderBrush="#2B3038" BorderThickness="0,0,0,1" Padding="8,5"><Grid ColumnDefinitions="24,2.5*,100,115,150,100,94"><TextBlock /><TextBlock Grid.Column="1" Text="{DynamicResource NamePath}" Classes="columnHeader" /><TextBlock Grid.Column="2" Text="{DynamicResource Type}" Classes="columnHeader" /><TextBlock Grid.Column="3" Text="{DynamicResource Category}" Classes="columnHeader" /><TextBlock Grid.Column="4" Text="{DynamicResource Modified}" Classes="columnHeader" /><TextBlock Grid.Column="5" Text="{DynamicResource Size}" Classes="columnHeader" HorizontalAlignment="Right" /><TextBlock Grid.Column="6" Text="{DynamicResource Probability}" Classes="columnHeader" HorizontalAlignment="Right" /></Grid></Border>
+          <ListBox x:Name="SearchResultList" Grid.Row="3" ItemsSource="{Binding SearchResults}" SelectedItem="{Binding SelectedResult}"><ListBox.ItemTemplate><DataTemplate x:DataType="core:SearchResult"><Grid ColumnDefinitions="24,2.5*,100,115,150,100,94" Margin="3,1" MinHeight="34"><TextBlock Text="{Binding Type, Converter={x:Static vm:LocalizedEnumConverter.Instance}}" FontSize="9" Foreground="#79B8F3" VerticalAlignment="Center" /><StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding FullPath}" Classes="muted" FontSize="9" TextTrimming="CharacterEllipsis" /></StackPanel><TextBlock Grid.Column="2" Text="{Binding Type, Converter={x:Static vm:LocalizedEnumConverter.Instance}}" VerticalAlignment="Center" /><TextBlock Grid.Column="3" Text="{Binding Category, Converter={x:Static vm:LocalizedEnumConverter.Instance}}" VerticalAlignment="Center" /><TextBlock Grid.Column="4" Text="{Binding ModifiedAt}" VerticalAlignment="Center" /><TextBlock Grid.Column="5" Text="{Binding Size}" HorizontalAlignment="Right" VerticalAlignment="Center" /><TextBlock Grid.Column="6" Text="{Binding Score, Converter={x:Static vm:ProbabilityConverter.Instance}}" Foreground="#E1C17B" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center" /></Grid></DataTemplate></ListBox.ItemTemplate></ListBox>
+          <Border Grid.Row="4" Background="#101318" BorderBrush="#292E35" BorderThickness="0,1,0,0" Padding="12"><Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="5"><TextBlock Text="{Binding SelectedResult.Name}" FontWeight="SemiBold" FontSize="14" /><TextBlock Grid.Row="1" Text="{Binding SelectedResult.FullPath}" Classes="muted" TextTrimming="CharacterEllipsis" /><TextBlock Grid.Row="2" Text="{Binding SelectedResult.MatchSnippet}" Foreground="#D5B36C" TextTrimming="CharacterEllipsis" /><StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="6"><Button Content="{DynamicResource OpenF3}" Command="{Binding OpenResultCommand}" /><Button Content="{DynamicResource FolderF4}" Command="{Binding OpenFolderCommand}" /><Button Content="{DynamicResource Rename}" Command="{Binding RenameEntryCommand}" /><Button Content="{DynamicResource Copy}" Command="{Binding CopyEntryCommand}" /><Button Content="{DynamicResource Move}" Command="{Binding MoveEntryCommand}" /><Button Content="{DynamicResource MoveToTrash}" Command="{Binding TrashEntryCommand}" /></StackPanel></Grid></Border>
+        </Grid>
+      </Border>
+
+      <Border IsVisible="{Binding IsTargetsPage}" Classes="panel">
+        <Grid ColumnDefinitions="330,*"><Grid RowDefinitions="28,*,Auto"><Border Classes="panelHeader"><TextBlock Text="{DynamicResource ScanTargets}" Classes="header" /></Border><ListBox Grid.Row="1" ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}"><ListBox.ItemTemplate><DataTemplate x:DataType="core:ScanTarget"><TextBlock Text="{Binding RootPath}" Margin="4" TextTrimming="CharacterEllipsis" /></DataTemplate></ListBox.ItemTemplate></ListBox><StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="5" Margin="5"><Button Content="{DynamicResource AddFolder}" Command="{Binding AddTargetCommand}" /><Button Content="{DynamicResource Disconnect}" Command="{Binding RemoveTargetCommand}" /></StackPanel></Grid>
+          <ScrollViewer Grid.Column="1"><StackPanel Margin="14" Spacing="10"><Border Classes="panelHeader"><TextBlock Text="{DynamicResource TargetConfiguration}" Classes="header" /></Border><Border Classes="group"><StackPanel Spacing="8"><TextBlock Text="{Binding SelectedTarget.RootPath}" FontWeight="SemiBold" /><CheckBox Content="{DynamicResource RecursiveScan}" IsChecked="{Binding TargetRecursive}" /><TextBlock Text="{DynamicResource Exclusions}" Classes="muted" /><TextBox Text="{Binding TargetExclusions}" AcceptsReturn="True" MinHeight="58" /><StackPanel Orientation="Horizontal" Spacing="5"><Button Content="{DynamicResource SaveSettings}" Command="{Binding UpdateTargetCommand}" /><Button Content="{DynamicResource StartScanF5}" Command="{Binding StartScanCommand}" /><Button Content="{DynamicResource Cancel}" Command="{Binding CancelScanCommand}" /><Button Content="{DynamicResource UnmountDrive}" Command="{Binding UnmountDriveCommand}" /><Button Content="{DynamicResource EjectDrive}" Command="{Binding EjectDriveCommand}" /></StackPanel><TextBlock Text="{DynamicResource DiskActionsHelp}" Classes="muted" TextWrapping="Wrap" /></StackPanel></Border><Border Classes="group"><StackPanel Spacing="8"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource ScanProgress}" Classes="header" /><TextBlock Grid.Column="1" Text="{Binding ScanState}" Foreground="#78C6A3" FontWeight="Bold" /></Grid><TextBlock Text="{Binding CurrentPath}" Classes="muted" TextTrimming="CharacterEllipsis" /><UniformGrid Columns="6"><StackPanel><TextBlock Text="{DynamicResource Files}" Classes="muted" /><TextBlock Text="{Binding ScanFiles}" FontSize="20" /></StackPanel><StackPanel><TextBlock Text="{DynamicResource Directories}" Classes="muted" /><TextBlock Text="{Binding ScanDirectories}" FontSize="20" /></StackPanel><StackPanel><TextBlock Text="{DynamicResource Indexed}" Classes="muted" /><TextBlock Text="{Binding ScanIndexed}" FontSize="20" /></StackPanel><StackPanel><TextBlock Text="{DynamicResource Observed}" Classes="muted" /><TextBlock Text="{Binding ScanBytesDisplay}" FontSize="17" /></StackPanel><StackPanel><TextBlock Text="{DynamicResource Errors}" Classes="muted" /><TextBlock Text="{Binding ScanErrors}" FontSize="20" /></StackPanel><StackPanel><TextBlock Text="{DynamicResource Elapsed}" Classes="muted" /><TextBlock Text="{Binding ScanElapsed}" FontSize="17" /></StackPanel></UniformGrid></StackPanel></Border></StackPanel></ScrollViewer>
+        </Grid>
+      </Border>
+
+      <ScrollViewer IsVisible="{Binding IsAnalysisPage}"><StackPanel Margin="14" Spacing="10"><Border Classes="panelHeader"><TextBlock Text="{DynamicResource IndexAnalysis}" Classes="header" /></Border><UniformGrid Columns="3" Rows="2"><Border Classes="group" Margin="0,0,5,5"><StackPanel><TextBlock Text="{DynamicResource Files}" Classes="muted" /><TextBlock Text="{Binding TotalFilesDisplay}" FontSize="25" /></StackPanel></Border><Border Classes="group" Margin="0,0,5,5"><StackPanel><TextBlock Text="{DynamicResource Directories}" Classes="muted" /><TextBlock Text="{Binding TotalDirectoriesDisplay}" FontSize="25" /></StackPanel></Border><Border Classes="group" Margin="0,0,0,5"><StackPanel><TextBlock Text="{DynamicResource IndexedSize}" Classes="muted" /><TextBlock Text="{Binding TotalSizeDisplay}" FontSize="25" /></StackPanel></Border><Border Classes="group" Margin="0,0,5,0"><StackPanel><TextBlock Text="{DynamicResource MissingFiles}" Classes="muted" /><TextBlock Text="{Binding MissingDisplay}" FontSize="25" /></StackPanel></Border><Border Classes="group" Margin="0,0,5,0"><StackPanel><TextBlock Text="{DynamicResource ScanErrors}" Classes="muted" /><TextBlock Text="{Binding AnalysisErrorsDisplay}" FontSize="25" /></StackPanel></Border><Border Classes="group"><StackPanel><TextBlock Text="{DynamicResource SameSizeGroups}" Classes="muted" /><TextBlock Text="{Binding CandidateGroupsDisplay}" FontSize="25" /></StackPanel></Border></UniformGrid><Border Classes="group"><StackPanel Spacing="8"><TextBlock Text="{DynamicResource SafeDuplicates}" Classes="header" /><TextBlock Text="{DynamicResource DuplicateHelp}" Classes="muted" /><StackPanel Orientation="Horizontal" Spacing="6"><Button Content="{DynamicResource RunAnalysis}" Command="{Binding AnalyzeDuplicatesCommand}" /><Button Content="{DynamicResource Refresh}" Command="{Binding RefreshAnalysisCommand}" /><TextBlock Text="{Binding ConfirmedDuplicateGroups}" FontSize="18" /></StackPanel></StackPanel></Border></StackPanel></ScrollViewer>
+
+      <ScrollViewer IsVisible="{Binding IsSettingsPage}"><StackPanel Margin="14" Spacing="10"><Border Classes="panelHeader"><TextBlock Text="{DynamicResource SettingsSafety}" Classes="header" /></Border><Border Classes="group"><StackPanel Spacing="7"><CheckBox Content="{DynamicResource AutomaticDrives}" IsChecked="{Binding AutomaticDrives}" FontWeight="SemiBold" /><TextBlock Text="{DynamicResource AutomaticDrivesHelp}" Classes="muted" TextWrapping="Wrap" /></StackPanel></Border><Border Classes="group"><StackPanel Spacing="6"><TextBlock Text="{DynamicResource BackgroundAutomationTitle}" Classes="header" /><TextBlock Text="{Binding BackgroundStatusMessage}" Foreground="#79B8F3" /><TextBlock Text="{Binding OcrStatusDisplay}" Foreground="#F1C477" /><TextBlock Text="{DynamicResource BackgroundAutomationHelp}" Classes="muted" TextWrapping="Wrap" /></StackPanel></Border><Border Classes="group"><Grid ColumnDefinitions="*,Auto" ColumnSpacing="12"><StackPanel><TextBlock Text="{DynamicResource ReadOnlyGuarantee}" Classes="header" /><TextBlock Text="{Binding AccessModeDisplay}" FontWeight="Bold" Foreground="#78C6A3" Margin="0,6,0,0" /><TextBlock Text="{Binding AccessModeHelp}" TextWrapping="Wrap" Margin="0,4,0,0" /><TextBlock Text="{DynamicResource FileManagementSafety}" Classes="muted" TextWrapping="Wrap" /></StackPanel><Button Grid.Column="1" Content="{Binding AccessModeAction}" Command="{Binding ToggleAccessModeCommand}" VerticalAlignment="Center" /></Grid></Border><Border Classes="group"><StackPanel Spacing="7"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource OperationHistory}" Classes="header" /><Button Grid.Column="1" Content="{DynamicResource Undo}" Command="{Binding UndoFileOperationCommand}" /></Grid><ItemsControl ItemsSource="{Binding FileOperationHistory}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:FileOperationHistoryRow"><Grid ColumnDefinitions="120,*,145" Margin="0,3"><TextBlock Text="{Binding Operation}" FontWeight="SemiBold" /><TextBlock Grid.Column="1" Text="{Binding Path}" Classes="muted" TextTrimming="CharacterEllipsis" /><TextBlock Grid.Column="2" Text="{Binding CompletedAt}" Classes="muted" HorizontalAlignment="Right" /></Grid></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel></Border><Border Classes="group"><StackPanel Spacing="7"><TextBlock Text="{DynamicResource Database}" Classes="header" /><TextBlock Text="{Binding DatabasePath}" TextWrapping="Wrap" /><TextBlock Text="{DynamicResource DatabaseHelp}" Classes="muted" /></StackPanel></Border></StackPanel></ScrollViewer>
+    </Grid>
+
+    <Border Grid.Row="4" Background="#111419" BorderBrush="#292E35" BorderThickness="0,1,0,0" Padding="9,4"><Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="14"><TextBlock Text="{Binding StatusMessage}" TextTrimming="CharacterEllipsis" /><TextBlock Grid.Column="1" Text="{Binding BackgroundStatusMessage}" Foreground="#7DA7D9" /><TextBlock Grid.Column="2" Text="{Binding FileOperationProgress}" Foreground="#D5B36C" /><Button Grid.Column="3" Content="{DynamicResource Cancel}" Command="{Binding CancelFileOperationCommand}" Padding="8,1" MinHeight="22" /><TextBlock Grid.Column="4" Text="{Binding AccessModeDisplay}" Foreground="#78C6A3" FontWeight="SemiBold" /></Grid></Border>
+
+    <Grid Grid.Row="5" ColumnDefinitions="*,*,*,*,*,*,*,*" Background="#090B0E">
+      <Button Classes="function" Content="{DynamicResource RenameF2}" Command="{Binding RenameEntryCommand}" /><Button Grid.Column="1" Classes="function" Content="{DynamicResource OpenF3Short}" Command="{Binding OpenResultCommand}" /><Button Grid.Column="2" Classes="function" Content="{DynamicResource OpenFolderF4}" Command="{Binding OpenFolderCommand}" /><Button Grid.Column="3" Classes="function" Content="{DynamicResource CopyF5}" Command="{Binding CopyEntryCommand}" /><Button Grid.Column="4" Classes="function" Content="{DynamicResource MoveF6}" Command="{Binding MoveEntryCommand}" /><Button Grid.Column="5" Classes="function" Content="{DynamicResource NewFolderF7}" Command="{Binding CreateFolderCommand}" /><Button Grid.Column="6" Classes="function" Content="{DynamicResource TrashF8}" Command="{Binding TrashEntryCommand}" /><Button Grid.Column="7" Classes="function" Content="{DynamicResource SettingsF9}" Command="{Binding ShowPageCommand}" CommandParameter="Settings" />
+    </Grid>
+    </Grid>
+  </Grid>
+</Window>

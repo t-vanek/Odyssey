@@ -1,0 +1,52 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Odyssey.Desktop.SplashWindow"
+        Title="Odyssey"
+        Icon="/Assets/odyssey-icon.png"
+        Width="540"
+        Height="500"
+        CanResize="False"
+        ShowInTaskbar="True"
+        WindowDecorations="None"
+        WindowStartupLocation="CenterScreen"
+        Background="#090B0E">
+  <Border Background="#0E1014"
+          BorderBrush="#272C33"
+          BorderThickness="1"
+          CornerRadius="28"
+          Padding="48,42,48,38"
+          BoxShadow="0 24 70 0 #80000000">
+    <Grid RowDefinitions="*,Auto">
+      <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+        <Image Source="/Assets/odyssey-icon-source.png"
+               Width="300"
+               Height="220"
+               Stretch="Uniform" />
+        <TextBlock Text="ODYSSEY"
+                   FontSize="28"
+                   FontWeight="SemiBold"
+                   LetterSpacing="5"
+                   HorizontalAlignment="Center"
+                   TextAlignment="Center" />
+        <TextBlock Text="{DynamicResource SplashSubtitle}"
+                   Classes="muted"
+                   FontSize="14"
+                   HorizontalAlignment="Center"
+                   TextAlignment="Center" />
+      </StackPanel>
+
+      <StackPanel Grid.Row="1" HorizontalAlignment="Center" Spacing="14">
+        <ProgressBar Width="220"
+                     Height="3"
+                     IsIndeterminate="True"
+                     ShowProgressText="False" />
+        <TextBlock x:Name="StatusText"
+                   Text="{DynamicResource SplashPreparing}"
+                   Classes="muted"
+                   FontSize="12"
+                   HorizontalAlignment="Center"
+                   TextAlignment="Center" />
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>

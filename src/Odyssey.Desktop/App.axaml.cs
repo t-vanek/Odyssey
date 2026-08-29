@@ -1,0 +1,89 @@
+using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Markup.Xaml;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Odyssey.Core;
+using Odyssey.Infrastructure;
+using Odyssey.Search;
+
+namespace Odyssey.Desktop;
+
+public sealed class App : Application
+{
+    private static readonly TimeSpan MinimumSplashVisibility = TimeSpan.FromMilliseconds(1100);
+    private ServiceProvider? _services;
+
+    public override void Initialize() => AvaloniaXamlLoader.Load(this);
+
+    public override void OnFrameworkInitializationCompleted()
+    {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            var services = new ServiceCollection();
+            services.AddLogging(builder => builder.AddSimpleConsole(options => options.SingleLine = true).SetMinimumLevel(LogLevel.Information));
+            services.AddSingleton(SystemPerformanceProfile.Current);
+            services.AddSingleton<ApplicationStorage>();
+            services.AddSingleton<LocalizationService>();
+            services.AddSingleton<SqliteConnectionFactory>();
+            services.AddSingleton<IOdysseyStore, SqliteOdysseyStore>();
+            services.AddSingleton<IFileClassifier, ExtensionFileClassifier>();
+            services.AddSingleton<IExclusionPolicy, ConfigurableExclusionPolicy>();
+            services.AddSingleton<IFileSystemScanner, PortableFileSystemScanner>();
+            services.AddSingleton(_ => new LocalContentExtractor());
+            services.AddSingleton<IContentExtractor>(provider => provider.GetRequiredService<LocalContentExtractor>());
+            services.AddSingleton<IOcrCapability>(provider => provider.GetRequiredService<LocalContentExtractor>());
+            services.AddSingleton<IStorageVolumeDiscovery, PortableStorageVolumeDiscovery>();
+            services.AddSingleton<IDirectoryBrowserService, CachedDirectoryBrowserService>();
+            services.AddSingleton<IDiskManagementService, PortableDiskManagementService>();
+            services.AddSingleton<IFileOperationService, SafeFileOperationService>();
+            services.AddSingleton<UserPreferencesService>();
+            services.AddSingleton(provider => new ScanPipelineOptions(
+                PerformanceProfile: provider.GetRequiredService<SystemPerformanceProfile>()));
+            services.AddSingleton<IScanCoordinator, ScanCoordinator>();
+            services.AddSingleton<ISearchService, SqliteSearchService>();
+            services.AddSingleton<IDuplicateAnalyzer, DuplicateAnalyzer>();
+            services.AddSingleton<IBackgroundAutomationService, BackgroundAutomationService>();
+            services.AddSingleton<DesktopInteractionService>();
+            services.AddSingleton<IDesktopInteractionService>(provider => provider.GetRequiredService<DesktopInteractionService>());
+            services.AddSingleton<MainViewModel>();
+            services.AddSingleton<MainWindow>();
+            var provider = services.BuildServiceProvider();
+            _services = provider;
+
+            var splash = new SplashWindow();
+            splash.Opened += (_, _) => _ = CompleteStartupAsync(desktop, splash, provider);
+            desktop.MainWindow = splash;
+            desktop.Exit += (_, _) => _services.Dispose();
+        }
+
+        base.OnFrameworkInitializationCompleted();
+    }
+
+    private static async Task CompleteStartupAsync(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        SplashWindow splash,
+        ServiceProvider services)
+    {
+        // Warm starts can complete before the first splash frame is perceptible.
+        // Run the minimum display interval alongside real initialization so slow
+        // starts are never delayed beyond the work they already need to perform.
+        var minimumVisibility = Task.Delay(MinimumSplashVisibility);
+        // Opened is raised before the first frame is guaranteed to have reached
+        // the compositor. Yield briefly before constructing the heavier main UI.
+        await Task.Delay(40);
+        var localization = services.GetRequiredService<LocalizationService>();
+        splash.SetStatus(localization["SplashCheckingFormats"]);
+        await Task.Run(() => services.GetRequiredService<LocalContentExtractor>());
+
+        var viewModel = services.GetRequiredService<MainViewModel>();
+        var window = services.GetRequiredService<MainWindow>();
+        services.GetRequiredService<DesktopInteractionService>().Attach(window);
+        await viewModel.InitializeAsync(splash.SetStatus);
+        await minimumVisibility;
+        desktop.MainWindow = window;
+        window.Show();
+        splash.Close();
+        window.Activate();
+    }
+}

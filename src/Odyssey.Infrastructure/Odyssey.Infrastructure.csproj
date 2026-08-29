@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Odyssey.Core\Odyssey.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.5.1" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+    <PackageReference Include="PdfPig" Version="0.1.16" />
+    <PackageReference Include="SharpSevenZip" Version="2.0.109" />
+    <PackageReference Include="System.IO.Hashing" Version="10.0.11" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
