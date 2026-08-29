@@ -79,7 +79,14 @@ Status meanings:
   - The selectable Avalonia renderer validates span bounds, uses at most 4,096 colored spans and renders unclassified or overflow content as plain text. Language and token-limit state are localized in Czech and English. Multi-line lexical state intentionally does not cross block boundaries and this presentation limitation is documented.
   - Automated coverage checks semantic categories, every advertised family, ordered bounds, cancellation, the token cap, unknown/hex fallback, localized view-model state, selectable inline reconstruction, and local/archive/SFTP integration without materialization.
   - Stage verification: targeted local/archive/SFTP/syntax Quick View suite 43/43 in three consecutive runs; full suite 199/199; stability scenarios 5/5 in three consecutive runs; Debug and Release builds 0 warnings/errors; NuGet audit found no vulnerable direct or transitive package; `git diff --check` passed. Hosted CI is run after the stage commit is pushed and is reported in the stage handoff.
-- Next production stage: image/EXIF preview, followed by PDF/media/document presentation as separate acceptance work. Multi-Rename metadata enrichment, durable crash recovery and restart-persistent Undo also remain open. Writable 7z remains gated on a supported writer and rollback coverage.
+- Stage Q5 — safe embedded Monaco F4 editor: **Done**.
+  - F4 resolves exactly one regular local file from `ActivePane` and opens a bundled, offline Monaco editor. The document path never enters browser content; the bridge carries only bounded text, language, encoding state and explicit save/close messages.
+  - UTF-8 and BOM-marked UTF-8/UTF-16 files up to 8 MiB are version-bound by length, time and SHA-256. Binary/unsupported/oversize input, links/reparse boundaries and non-local sources are not represented as editable. Read-only mode is enforced in both UI and service.
+  - Save stages a sibling file, flushes and hashes it, revalidates the source, publishes through replacement with a backup, verifies the result and rolls back caught post-publication failure. External modification remains dirty and requires reload; dirty close requires explicit discard.
+  - The loopback asset host uses a random 256-bit route, a SHA-256 allowlist manifest, traversal/origin/navigation/message bounds, no-store responses and a network-denying CSP. CI performs a locked, script-disabled npm install, low-severity audit and deterministic asset rebuild. Monaco license and notices are packaged.
+  - Automated coverage includes encoding/version preservation, conflict refusal, rollback, cancellation, binary/size/link rejection, read-only enforcement, active/passive F4 routing, editor dirty-close behavior, asset tampering, route isolation and traversal rejection.
+  - Stage verification: targeted editor/asset/F4 suite 16/16; full checked-out suite 224/224; stability scenarios 14/14 in three consecutive runs; Debug and Release builds 0 warnings/errors; npm audit found no issue down to low severity and a clean locked rebuild reproduced the assets; NuGet audit found no vulnerable direct or transitive package; self-contained Linux and Windows publishes contained 11 manifest-verified Monaco files; `git diff --check` passed. A browser-engine smoke test rendered Monaco without console warnings. This Linux host lacks an Avalonia-supported WPE/WebKit runtime, so native WebView interaction and hosted CI remain explicit post-push gates.
+- Next production stage after Q5 verification: image/EXIF preview, followed by PDF/media/document presentation as separate acceptance work. Multi-Rename metadata enrichment, durable crash recovery and restart-persistent Undo also remain open. Writable 7z remains gated on a supported writer and rollback coverage.
 
 ## 1. Keyboard-first Commander UX
 
@@ -93,7 +100,7 @@ Status meanings:
 | Glob/regex filters and selection masks | Done | Shared timeout-bounded matcher; semicolon glob alternatives; context menu and mask prompt. |
 | Select all/invert/by extension/restore previous | Done | Active-pane commands and visual ListBox synchronization. |
 | Range selection/stable multiselect | Partial | Avalonia range/multiselect is enabled and selection survives valid filter refresh for loaded matches; cross-tab persistence and explicit keyboard range acceptance tests remain. |
-| F3–F8 workflow | Partial | F3 opens bounded local/archive/SFTP text/hex Quick View; F4 edits via OS association; F5/F6 use transfer flow; F7 creates; F8 trashes. Rich-format preview remains incomplete. |
+| F3–F8 workflow | Partial | F3 opens bounded local/archive/SFTP text/hex Quick View; F4 opens the guarded local Monaco editor with explicit external fallback; F5/F6 use transfer flow; F7 creates; F8 trashes. Rich-format preview remains incomplete. |
 | Configurable shortcuts/conflict detection | Not started | Current shortcuts are fixed. |
 | Configurable button bar | Not started | Existing bar is fixed. |
 | Safe panel command line | Not started | No command line exists. |
@@ -133,7 +140,7 @@ Remaining: EXIF date and available document/audio metadata tokens; per-volume ca
 
 | Capability | Status | Evidence / remaining work |
 |---|---|---|
-| F4 local edit | Partial | OS edit association is invoked safely for one local file; built-in editor and explicit save/publish flow are missing. |
+| F4 local edit | Done | Bundled Monaco edits one bounded regular local text file from the active panel. Read-only, link, version/conflict and encoding guards precede a staged, hash-verified replacement with rollback; unsupported content/WebView capability has an explicit safe external fallback. |
 | Chunked text, encoding, syntax, hex, image/EXIF, PDF, media/document preview | Partial | Local/archive/SFTP files have bounded encoding-aware text, guarded selectable syntax highlighting for common formats and hex view. Images/EXIF, PDF, media and document presentation are missing. |
 | Archive/SFTP preview and bounded temp cache | Done | Archive entries and connected SFTP files stream bounded text/hex blocks without local materialization. Version, path/link, cancellation, active-selection and credential boundaries have automated coverage; no temp cache is needed for these formats. |
 | Text side-by-side/inline diff and options | Not started | Directory comparison does not compare/display text hunks. |

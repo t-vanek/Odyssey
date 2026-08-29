@@ -214,6 +214,54 @@ public sealed class AutomaticDriveTests
     }
 
     [Fact]
+    public async Task MonacoF4CommandOpensOnlyTheActivePaneFileInReadOnlyMode()
+    {
+        await using var environment = await TestEnvironment.CreateAsync();
+        var leftRoot = Path.Combine(environment.Root, "left-editor");
+        var rightRoot = Path.Combine(environment.Root, "right-editor");
+        Directory.CreateDirectory(leftRoot);
+        Directory.CreateDirectory(rightRoot);
+        await File.WriteAllTextAsync(Path.Combine(leftRoot, "inactive.cs"), "class Inactive { }");
+        var activePath = Path.Combine(rightRoot, "active.cs");
+        await File.WriteAllTextAsync(activePath, "class Active { }");
+        var coordinator = new ScanCoordinator(
+            new PortableFileSystemScanner(new ConfigurableExclusionPolicy()),
+            new ExtensionFileClassifier(), environment.Store,
+            new ScanPipelineOptions(2, 16, 4), NullLogger<ScanCoordinator>.Instance);
+        var editorService = new SafeTextEditorService();
+        var viewModel = new MainViewModel(
+            environment.Store, coordinator, environment.Search,
+            new EmptySystemSearchHistory(), new UnusedDesktopInteraction(),
+            new LocalizationService(environment.Storage),
+            new FixedVolumeDiscovery(new StorageVolume(leftRoot, "Test", false)),
+            new CachedDirectoryBrowserService(), new UnusedDiskManagement(),
+            new SafeFileOperationService(environment.Storage),
+            new UserPreferencesService(environment.Storage),
+            new NullBackgroundAutomationService(), new DisabledOcrCapability(),
+            textEditor: editorService);
+        viewModel.ShowPageCommand.Execute("Files");
+        viewModel.LeftPane.SelectedTarget = Target(leftRoot);
+        viewModel.RightPane.SelectedTarget = Target(rightRoot);
+        Assert.True(await TestWait.UntilAsync(
+            () => !viewModel.LeftPane.IsLoading && !viewModel.RightPane.IsLoading,
+            TimeSpan.FromSeconds(3)));
+        viewModel.LeftPane.SetSelection([viewModel.LeftPane.Entries.Single()]);
+        viewModel.RightPane.SetSelection([viewModel.RightPane.Entries.Single()]);
+        viewModel.RightPane.Activate();
+
+        await viewModel.EditEntryCommand.ExecuteAsync(null);
+
+        var editor = Assert.IsType<TextEditorViewModel>(viewModel.TextEditor);
+        Assert.True(editor.IsOpen);
+        Assert.True(editor.IsReadOnly);
+        Assert.Equal(FileAccessMode.ReadOnly, editorService.AccessMode);
+        Assert.Equal(Path.GetFullPath(activePath), editor.SourcePath);
+        Assert.Equal("class Active { }", editor.Document?.Content);
+        Assert.DoesNotContain("Inactive", editor.Document?.Content, StringComparison.Ordinal);
+        viewModel.CancelActiveWork();
+    }
+
+    [Fact]
     public async Task QuickView_F3CommandPreviewsTheActiveArchiveEntryWithoutExtraction()
     {
         await using var environment = await TestEnvironment.CreateAsync();

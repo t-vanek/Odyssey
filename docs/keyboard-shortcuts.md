@@ -6,7 +6,7 @@ Commander shortcuts work on the active file panel only. The highlighted panel is
 |---|---|
 | `F2` | Rename the single selected item |
 | `F3` | Open bounded Quick View for the selected local/archive file, or the single selected file on the Remote page |
-| `F4` | Edit the selected local file using the operating-system association |
+| `F4` | Edit the selected local text file in Odyssey's Monaco editor |
 | `F5` | Copy active-panel selection to the other panel, including local↔ZIP and controlled archive→archive transfer |
 | `F6` | Move active-panel selection to the other panel after confirmation |
 | `F7` | Create a directory in the active panel |
@@ -26,7 +26,7 @@ Commander shortcuts work on the active file panel only. The highlighted panel is
 
 Glob filters support `*`, `?`, and semicolon-separated alternatives such as `*.cs;*.md`. Regex matching is timeout-bounded. An invalid pattern is shown as an error and does not replace the last valid result view. Match-case is configured independently in each panel.
 
-F4 behavior depends on a configured OS file association. On Windows Odyssey asks for the `edit` verb and falls back to the default association if that verb is unavailable. Odyssey passes the selected path as a process argument; it does not construct a shell command string.
+F4 opens one regular, non-link local text file from the active panel in Odyssey's bundled Monaco editor. `Ctrl+S` saves and `Escape` closes after an explicit discard prompt when needed. Read-only mode permits viewing but disables writes. Files larger than 8 MiB, binary content, unsupported encodings, archive entries and unavailable WebView runtimes fall back to an explicit **Open externally** action. External opening passes one canonical path as a process argument and never constructs a shell command string. See [Safe text editing](text-editor.md).
 
 Inside Quick View, `Page Up` and `Page Down` load the previous or next bounded byte block. `Ctrl+Home` and `Ctrl+End` jump to the first or last block, and `Escape` closes the viewer. These keys are captured by the viewer, so file mutation shortcuts cannot run against a panel hidden behind it. Known text extensions are syntax-highlighted while remaining selectable; forced Hex and unknown formats use the plain viewer. Opening a directory or supported archive still uses double-click or the application context menu's **Open** action; opening a regular archive or SFTP entry opens Quick View without extracting/downloading it to a local file.
 

@@ -81,6 +81,22 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Install Node.js for Monaco verification
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.20.0'
+          cache: npm
+          cache-dependency-path: src/Odyssey.Desktop/Monaco/package-lock.json
+
+      - name: Audit and rebuild bundled Monaco assets
+        working-directory: src/Odyssey.Desktop/Monaco
+        shell: bash
+        run: |
+          npm ci --ignore-scripts
+          npm audit --audit-level=low
+          npm run build
+          git diff --exit-code -- dist
+
       - name: Validate native dependency manifest
         shell: bash
         run: ./eng/verify-native-manifest.sh

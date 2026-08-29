@@ -578,6 +578,47 @@
       </Grid>
     </Border>
 
+    <Border ZIndex="115" Margin="26" Padding="16" CornerRadius="14" Background="#FA0B0E12"
+            BorderBrush="#526071" BorderThickness="1" IsVisible="{Binding TextEditor.IsOpen}"
+            x:CompileBindings="False" AutomationProperties.Name="{DynamicResource TextEditorTitle}">
+      <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="9">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Spacing="2">
+            <TextBlock Text="{Binding TextEditor.SourceName}" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="{Binding TextEditor.SourcePath}" Classes="muted" TextTrimming="CharacterEllipsis" />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <TextBlock Text="{Binding TextEditor.Language}" Foreground="#C792EA" />
+              <TextBlock Text="{Binding TextEditor.Encoding}" Foreground="#7DA7D9" />
+              <TextBlock Text="{Binding TextEditor.AccessStatus}" Classes="muted" />
+              <TextBlock Text="{DynamicResource TextEditorHelp}" Classes="muted" />
+            </StackPanel>
+          </StackPanel>
+          <Button Grid.Column="1" Content="✕" Command="{Binding TextEditor.CloseCommand}"
+                  AutomationProperties.Name="{DynamicResource TextEditorClose}" />
+        </Grid>
+
+        <Border Grid.Row="1" Background="#211416" BorderBrush="#613C42" BorderThickness="1" CornerRadius="7"
+                Padding="9,6" IsVisible="{Binding TextEditor.HasError}">
+          <TextBlock Text="{Binding TextEditor.Error}" Foreground="#F0A0A0" TextWrapping="Wrap" />
+        </Border>
+
+        <Border Grid.Row="2" Background="#090B0E" BorderBrush="#39414C" BorderThickness="1" CornerRadius="4">
+          <vm:MonacoEditorHost Editor="{Binding TextEditor}"
+                               AutomationProperties.Name="{DynamicResource TextEditorAccessibleName}" />
+        </Border>
+
+        <Grid Grid.Row="3" ColumnDefinitions="*,Auto" ColumnSpacing="10">
+          <TextBlock Text="{Binding TextEditor.Status}" Classes="muted" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="7">
+            <Button Content="{DynamicResource TextEditorReload}" Command="{Binding TextEditor.ReloadCommand}" />
+            <Button Content="{DynamicResource TextEditorExternal}" Command="{Binding TextEditor.OpenExternalCommand}" />
+            <Button Content="{DynamicResource TextEditorCancel}" Command="{Binding TextEditor.CancelCommand}" />
+            <Button Classes="primary" Content="{DynamicResource TextEditorSave}" Command="{Binding TextEditor.SaveCommand}" />
+          </StackPanel>
+        </Grid>
+      </Grid>
+    </Border>
+
     <Border ZIndex="110" Margin="34" Padding="18" CornerRadius="14" Background="#FA0B0E12"
             BorderBrush="#526071" BorderThickness="1" IsVisible="{Binding QuickView.IsOpen}"
             x:CompileBindings="False" AutomationProperties.Name="{DynamicResource QuickViewTitle}">

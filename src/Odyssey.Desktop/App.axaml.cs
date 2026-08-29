@@ -62,6 +62,7 @@ public sealed class App : Application
                 new QuickViewService(
                     provider.GetRequiredService<IArchiveEntryPreviewReader>(),
                     (IRemoteFilePreviewReader)provider.GetRequiredService<ISftpConnectionService>()));
+            services.AddSingleton<ITextEditorService>(_ => new SafeTextEditorService());
             services.AddSingleton<IArchiveService>(provider => provider.GetRequiredService<SafeArchiveService>());
             services.AddSingleton<IArchiveMutationService>(provider => provider.GetRequiredService<SafeArchiveService>());
             services.AddSingleton<IArchiveRecoveryService>(provider => provider.GetRequiredService<SafeArchiveService>());

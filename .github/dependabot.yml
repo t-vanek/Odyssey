@@ -13,3 +13,10 @@ updates:
       interval: weekly
     target-branch: master
     open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: /src/Odyssey.Desktop/Monaco
+    schedule:
+      interval: weekly
+    target-branch: master
+    open-pull-requests-limit: 5

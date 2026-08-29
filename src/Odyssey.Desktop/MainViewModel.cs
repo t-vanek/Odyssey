@@ -1085,7 +1085,8 @@ public sealed class MainViewModel : ObservableObject
         IArchiveService? archives = null,
         IArchiveMutationService? archiveMutations = null,
         IMultiRenameService? multiRename = null,
-        IQuickViewService? quickView = null)
+        IQuickViewService? quickView = null,
+        ITextEditorService? textEditor = null)
     {
         _store = store;
         _scanner = scanner;
@@ -1139,6 +1140,18 @@ public sealed class MainViewModel : ObservableObject
             };
         }
         if (quickView is not null) QuickView = new QuickViewViewModel(quickView, localization);
+        if (textEditor is not null)
+        {
+            TextEditor = new TextEditorViewModel(textEditor, desktop, localization)
+            {
+                AccessMode = _fileOperations.AccessMode
+            };
+            TextEditor.Saved += (_, _) =>
+            {
+                TryRefreshPane(LeftPane);
+                TryRefreshPane(RightPane);
+            };
+        }
         _statusMessage = localization["Starting"];
         _scanState = localization["Ready"];
         Targets.CollectionChanged += (_, _) =>
@@ -1240,6 +1253,7 @@ public sealed class MainViewModel : ObservableObject
     public AgentApprovalViewModel? Approvals { get; }
     public MultiRenameViewModel? MultiRename { get; }
     public QuickViewViewModel? QuickView { get; }
+    public TextEditorViewModel? TextEditor { get; }
 
     public ICommand ShowPageCommand { get; }
     public IAsyncRelayCommand RescueSearchCommand { get; }
@@ -1393,6 +1407,7 @@ public sealed class MainViewModel : ObservableObject
             if (_archives is not null) _archives.AccessMode = _fileOperations.AccessMode;
             if (_archiveMutations is not null) _archiveMutations.AccessMode = _fileOperations.AccessMode;
             if (MultiRename is not null) MultiRename.AccessMode = _fileOperations.AccessMode;
+            if (TextEditor is not null) TextEditor.AccessMode = _fileOperations.AccessMode;
             _preferences.ReadOnlyMode = value;
             OnPropertyChanged(nameof(IsFileManagementMode));
             OnPropertyChanged(nameof(AccessModeDisplay));
@@ -2262,13 +2277,29 @@ public sealed class MainViewModel : ObservableObject
         await QuickView.OpenAsync(entry.FullPath);
     }
 
-    private Task EditEntryAsync()
+    private async Task EditEntryAsync()
     {
         if (IsFilesPage && ActivePane.SelectedEntry?.Endpoint == FileTransferEndpointKind.Archive)
-            return Task.CompletedTask;
+            return;
         var entry = GetSelectedEntry() ?? throw new InvalidOperationException(_localization["NoItemSelected"]);
-        if (entry.Type != FileEntryType.File) return Task.CompletedTask;
-        return RunDesktopAction(() => _desktop.EditAsync(entry.Path), _localization["EditorOpened"]);
+        if (entry.Type != FileEntryType.File) return;
+        if (TextEditor is null)
+        {
+            await RunDesktopAction(() => _desktop.EditAsync(entry.Path), _localization["EditorOpened"]);
+            return;
+        }
+        try
+        {
+            await TextEditor.OpenAsync(entry.Path);
+            StatusMessage = _localization["TextEditorOpened"];
+        }
+        catch (TextEditorUnsupportedException)
+        {
+            await RunDesktopAction(
+                () => _desktop.EditAsync(entry.Path),
+                _localization["TextEditorExternalFallback"]);
+        }
+        catch (Exception exception) { StatusMessage = exception.Message; }
     }
 
     private Task OpenFolderAsync()

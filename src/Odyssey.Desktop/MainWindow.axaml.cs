@@ -137,6 +137,16 @@ public sealed partial class MainWindow : Window
             if (e.Key == Key.Escape) e.Handled = Execute(_viewModel.MultiRename.CloseCommand);
             return;
         }
+        if (_viewModel.TextEditor?.IsOpen == true)
+        {
+            if (e.Key == Key.Escape)
+                e.Handled = Execute(_viewModel.TextEditor.CloseCommand);
+            else if (e.Key == Key.S && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+                e.Handled = Execute(_viewModel.TextEditor.SaveCommand);
+            else if (e.Key is Key.F2 or Key.F3 or Key.F4 or Key.F5 or Key.F6 or Key.F7 or Key.F8)
+                e.Handled = true;
+            return;
+        }
         if (_viewModel.QuickView?.IsOpen == true)
         {
             var modalCommand = e.Key switch

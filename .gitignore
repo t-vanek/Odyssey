@@ -5,6 +5,7 @@ riderModule.iml
 /_ReSharper.Caches/
 TestResults/
 /artifacts/
+node_modules/
 *.user
 *.suo
 .DS_Store
