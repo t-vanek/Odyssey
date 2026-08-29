@@ -466,6 +466,9 @@ public sealed class AutomaticDriveTests
             new NullBackgroundAutomationService(), new DisabledOcrCapability());
 
         await viewModel.InitializeAsync();
+        Assert.True(await TestWait.UntilAsync(
+            () => !viewModel.LeftPane.IsLoading && !viewModel.RightPane.IsLoading,
+            TimeSpan.FromSeconds(10)));
 
         Assert.Equal(target.Id, viewModel.LeftPane.SelectedTarget?.Id);
         Assert.Equal(Path.GetFullPath(nested), viewModel.LeftPane.CurrentPath);
