@@ -52,7 +52,7 @@ public sealed class UpdateService
     }
 
     public Version CurrentVersion { get; }
-    public string CurrentVersionText => $"{CurrentVersion.Major}.{CurrentVersion.Minor}.{Math.Max(0, CurrentVersion.Build)}";
+    public string CurrentVersionText => FormatVersion(CurrentVersion);
     public bool CanInstall => _platformKey is not null && File.Exists(UpdaterPath);
     public PreparedUpdate? Prepared => _prepared;
 
@@ -81,7 +81,7 @@ public sealed class UpdateService
             return new UpdateCheckResult(UpdateCheckStatus.Unsupported, CurrentVersion);
         ValidateManifestAsset(asset);
 
-        var versionDirectory = Path.Combine(_updatesDirectory, availableVersion.ToString(3));
+        var versionDirectory = Path.Combine(_updatesDirectory, FormatVersion(availableVersion));
         Directory.CreateDirectory(versionDirectory);
         var archivePath = Path.Combine(versionDirectory, asset.FileName);
         if (!File.Exists(archivePath) || !await HasExpectedHashAsync(archivePath, asset.Sha256, cancellationToken))
@@ -202,6 +202,9 @@ public sealed class UpdateService
         var normalized = informational?.Split('+', 2)[0].Split('-', 2)[0];
         return Version.TryParse(normalized, out var version) ? version : new Version(0, 0, 0);
     }
+
+    private static string FormatVersion(Version version) =>
+        version.ToString(version.Revision >= 0 ? 4 : version.Build >= 0 ? 3 : 2);
 
     private static string? ResolvePlatformKey()
     {

@@ -50,6 +50,24 @@ public sealed class UpdateTests : IDisposable
     }
 
     [Fact]
+    public async Task FourPartPreviewBuild_UsesItsRevisionForComparisonAndStorage()
+    {
+        var package = Encoding.UTF8.GetBytes("preview package");
+        var hash = Convert.ToHexString(SHA256.HashData(package)).ToLowerInvariant();
+        using var http = CreateClient("0.0.0.2", hash, package);
+        var storage = new ApplicationStorage(Path.Combine(_root, "preview-data"));
+        var install = Directory.CreateDirectory(Path.Combine(_root, "preview-app")).FullName;
+        var service = new UpdateService(http, storage, new Version(0, 0, 0, 1), "linux-x64", install,
+            Path.Combine(install, "Odyssey.Desktop"));
+
+        var result = await service.CheckAndPrepareAsync();
+
+        Assert.Equal("0.0.0.1", service.CurrentVersionText);
+        Assert.Equal(new Version(0, 0, 0, 2), result.Update!.Version);
+        Assert.Equal("0.0.0.2", Path.GetFileName(Path.GetDirectoryName(result.Update.ArchivePath)));
+    }
+
+    [Fact]
     public async Task UpdateHelper_ReplacesPackagedFilesFromVerifiedArchive()
     {
         var install = Path.Combine(_root, "install");

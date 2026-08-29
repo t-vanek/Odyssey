@@ -176,7 +176,7 @@ public sealed class AgentOperationTests : IDisposable
         var storage = new ApplicationStorage(Path.Combine(_root, $"data-{Guid.NewGuid():N}"));
         var approvedRoot = Path.Combine(_root, $"approved-{Guid.NewGuid():N}");
         Directory.CreateDirectory(approvedRoot);
-        var connections = new SqliteConnectionFactory(storage);
+        var connections = new SqliteConnectionFactory(storage, pooling: false);
         var store = new SqliteOdysseyStore(connections, NullLogger<SqliteOdysseyStore>.Instance);
         await store.InitializeAsync();
         var session = await store.SaveSessionAsync(new RescueSession
@@ -194,7 +194,7 @@ public sealed class AgentOperationTests : IDisposable
             Recursive = true
         });
         var policy = new AgentAccessPolicyService(storage) { AccessLevel = accessLevel };
-        var operationStore = new AgentOperationStore(storage);
+        var operationStore = new AgentOperationStore(storage, pooling: false);
         var service = new AgentOperationService(
             store,
             operationStore,

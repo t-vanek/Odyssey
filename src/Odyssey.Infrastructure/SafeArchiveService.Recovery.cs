@@ -91,11 +91,14 @@ public sealed partial class SafeArchiveService
                 var info = ValidateRegularFile(manifestPath, "Recovery manifest");
                 if (info.Length > MaximumRecoveryManifestBytes)
                     throw new InvalidDataException("Recovery manifest is too large.");
-                await using var stream = new FileStream(manifestPath, FileMode.Open, FileAccess.Read, FileShare.Read,
-                    16 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
-                var manifest = await JsonSerializer.DeserializeAsync<ArchiveRecoveryManifest>(
+                ArchiveRecoveryManifest manifest;
+                await using (var stream = new FileStream(manifestPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                                 16 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan))
+                {
+                    manifest = await JsonSerializer.DeserializeAsync<ArchiveRecoveryManifest>(
                                    stream, RecoveryJsonOptions, cancellationToken).ConfigureAwait(false)
                                ?? throw new InvalidDataException("Recovery manifest is empty.");
+                }
                 ValidateRecoveryManifest(manifestPath, manifest);
                 RecoverManifest(manifestPath, manifest, cancellationToken);
                 recovered++;

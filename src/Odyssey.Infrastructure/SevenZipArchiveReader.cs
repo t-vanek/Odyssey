@@ -72,7 +72,7 @@ internal sealed class SevenZipArchiveReader
         {
             token.ThrowIfCancellationRequested();
             if (count++ >= MaximumEntries || output.Length >= MaximumCharacters) break;
-            AppendBounded(entry.FileName, output);
+            AppendBounded(entry.FileName?.Replace('\\', '/'), output);
         }
         return output.ToString();
     }

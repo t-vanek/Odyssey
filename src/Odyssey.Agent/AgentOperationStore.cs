@@ -5,15 +5,20 @@ using Odyssey.Infrastructure;
 
 namespace Odyssey.Agent;
 
-public sealed class AgentOperationStore(ApplicationStorage storage)
+public sealed class AgentOperationStore
 {
-    private readonly string _connectionString = new SqliteConnectionStringBuilder
+    private readonly string _connectionString;
+
+    public AgentOperationStore(ApplicationStorage storage, bool pooling = true)
     {
-        DataSource = Path.Combine(storage.DirectoryPath, "agent-operations.db"),
-        Mode = SqliteOpenMode.ReadWriteCreate,
-        Cache = SqliteCacheMode.Shared,
-        Pooling = true
-    }.ToString();
+        _connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = Path.Combine(storage.DirectoryPath, "agent-operations.db"),
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Shared,
+            Pooling = pooling
+        }.ToString();
+    }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {

@@ -37,6 +37,6 @@ An update is a reviewed source change, not an automatic download:
 3. Recompute hashes from the exact restored package and exact upstream commit; never weaken a failed hash check.
 4. Run manifest validation, the native Linux build, the full test suite with the configured library, both package-stage paths, final-container verification, and the vulnerability audit.
 5. Update `THIRD-PARTY-NOTICES.md` and this document if licensing, paths, ABI, or build requirements changed.
-6. Let hosted CI verify both Windows and Linux before creating a semantic-version tag.
+6. Let hosted CI verify both Windows and Linux before creating an accepted stable or preview release tag.
 
 Users may replace the library under the applicable LGPL terms or select a compatible build with `ODYSSEY_7ZIP_LIBRARY`. A replacement is still subject to load/export preflight and all archive safety policies. Exact notices and source links are in `THIRD-PARTY-NOTICES.md`; the complete license texts ship with every release.
