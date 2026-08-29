@@ -18,6 +18,7 @@ public sealed class QuickViewService : IQuickViewService
         ["auto", "utf-8", "utf-16", "utf-16BE", "iso-8859-1", "us-ascii"];
     private readonly IArchiveEntryPreviewReader? _archiveReader;
     private readonly IRemoteFilePreviewReader? _remoteReader;
+    private readonly IQuickViewSyntaxHighlighter _syntaxHighlighter = new BoundedSyntaxHighlighter();
 
     public QuickViewService() : this(null, null, DefaultMaximumChunkBytes) { }
     public QuickViewService(int maximumChunkBytes) : this(null, null, maximumChunkBytes) { }
@@ -103,6 +104,7 @@ public sealed class QuickViewService : IQuickViewService
                 ? FormatHex(content.AsSpan(0, consumed), offset)
                 : DecodeText(content.AsSpan(0, consumed), detection.Encoding,
                     offset == 0 ? detection.BomLength : 0);
+            var syntax = Highlight(request.Path, display, effectiveMode, detection.IsBinary, cancellationToken);
 
             var after = Snapshot(path);
             if (after != before) throw new IOException("The preview source changed while it was being read.");
@@ -116,7 +118,10 @@ public sealed class QuickViewService : IQuickViewService
                 Content = display,
                 EffectiveMode = effectiveMode,
                 EncodingName = detection.Name,
-                IsBinary = detection.IsBinary
+                IsBinary = detection.IsBinary,
+                SyntaxLanguage = syntax.Language,
+                SyntaxSpans = syntax.Spans,
+                IsSyntaxHighlightingTruncated = syntax.IsTruncated
             };
         }
         finally
@@ -162,6 +167,7 @@ public sealed class QuickViewService : IQuickViewService
             ? FormatHex(block.Content.AsSpan(0, consumed), block.Offset)
             : DecodeText(block.Content.AsSpan(0, consumed), detection.Encoding,
                 block.Offset == 0 ? detection.BomLength : 0);
+        var syntax = Highlight(request.Path, display, effectiveMode, detection.IsBinary, cancellationToken);
         var version = new QuickViewVersion(
             block.Version.EntryLength,
             block.Version.EntryModifiedAt ?? block.Version.ArchiveModifiedAt)
@@ -180,7 +186,10 @@ public sealed class QuickViewService : IQuickViewService
             Content = display,
             EffectiveMode = effectiveMode,
             EncodingName = detection.Name,
-            IsBinary = detection.IsBinary
+            IsBinary = detection.IsBinary,
+            SyntaxLanguage = syntax.Language,
+            SyntaxSpans = syntax.Spans,
+            IsSyntaxHighlightingTruncated = syntax.IsTruncated
         };
     }
 
@@ -217,6 +226,7 @@ public sealed class QuickViewService : IQuickViewService
             ? FormatHex(block.Content.AsSpan(0, consumed), block.Offset)
             : DecodeText(block.Content.AsSpan(0, consumed), detection.Encoding,
                 block.Offset == 0 ? detection.BomLength : 0);
+        var syntax = Highlight(request.Path, display, effectiveMode, detection.IsBinary, cancellationToken);
         return new QuickViewChunk
         {
             Path = request.Path,
@@ -227,9 +237,22 @@ public sealed class QuickViewService : IQuickViewService
             Content = display,
             EffectiveMode = effectiveMode,
             EncodingName = detection.Name,
-            IsBinary = detection.IsBinary
+            IsBinary = detection.IsBinary,
+            SyntaxLanguage = syntax.Language,
+            SyntaxSpans = syntax.Spans,
+            IsSyntaxHighlightingTruncated = syntax.IsTruncated
         };
     }
+
+    private QuickViewSyntaxResult Highlight(
+        string path,
+        string content,
+        QuickViewDisplayMode mode,
+        bool isBinary,
+        CancellationToken cancellationToken) =>
+        mode == QuickViewDisplayMode.Text && !isBinary
+            ? _syntaxHighlighter.Highlight(path, content, cancellationToken)
+            : new QuickViewSyntaxResult(null, []);
 
     private async Task<int> ReadAtMostAsync(
         Stream stream,

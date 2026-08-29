@@ -60,6 +60,19 @@ public sealed class RemoteQuickViewTests
         Assert.Contains("41 00 42", chunk.Content, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task SftpSource_UsesItsRemoteExtensionForSyntaxHighlighting()
+    {
+        var remote = new FakeRemotePreviewReader("/src/main.py", "def run():\n    return True");
+
+        var chunk = await new QuickViewService(remote).ReadAsync(Request("session", "/src/main.py"));
+
+        Assert.Equal("Python", chunk.SyntaxLanguage);
+        Assert.Contains(chunk.SyntaxSpans, span => span.Kind == QuickViewSyntaxKind.Keyword
+                                                  && chunk.Content.Substring(span.Start, span.Length) == "def");
+        Assert.Empty(remote.CreatedArtifacts);
+    }
+
     [Theory]
     [InlineData("relative.txt")]
     [InlineData("/folder/../escape.txt")]

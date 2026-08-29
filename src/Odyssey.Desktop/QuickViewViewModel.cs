@@ -86,6 +86,14 @@ public sealed class QuickViewViewModel : ObservableObject
         ? string.Empty
         : _localization.TranslateEnum(_chunk.EffectiveMode);
     public string EffectiveEncoding => _chunk?.EncodingName ?? string.Empty;
+    public IReadOnlyList<QuickViewSyntaxSpan> SyntaxSpans => _chunk?.SyntaxSpans ?? [];
+    public bool HasSyntaxHighlighting => SyntaxSpans.Count > 0;
+    public bool ShowPlainContent => !HasSyntaxHighlighting;
+    public string SyntaxStatus => _chunk?.SyntaxLanguage is not { Length: > 0 } language
+        ? string.Empty
+        : _chunk.IsSyntaxHighlightingTruncated
+            ? _localization.Format("QuickViewSyntaxLimited", language)
+            : _localization.Format("QuickViewSyntax", language);
     public string OffsetSummary => _chunk is null
         ? string.Empty
         : _localization.Format("QuickViewOffset", _chunk.Offset, _chunk.NextOffset, _chunk.Version.Length);
@@ -227,6 +235,10 @@ public sealed class QuickViewViewModel : ObservableObject
         OnPropertyChanged(nameof(EffectiveMode));
         OnPropertyChanged(nameof(EffectiveEncoding));
         OnPropertyChanged(nameof(OffsetSummary));
+        OnPropertyChanged(nameof(SyntaxSpans));
+        OnPropertyChanged(nameof(HasSyntaxHighlighting));
+        OnPropertyChanged(nameof(ShowPlainContent));
+        OnPropertyChanged(nameof(SyntaxStatus));
         NotifyCommands();
     }
 

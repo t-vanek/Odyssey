@@ -2,6 +2,34 @@ namespace Odyssey.Core;
 
 public enum QuickViewDisplayMode { Auto, Text, Hex }
 
+public enum QuickViewSyntaxKind
+{
+    Keyword,
+    String,
+    Number,
+    Comment,
+    Property,
+    Tag,
+    Attribute,
+    Heading,
+    Link
+}
+
+public sealed record QuickViewSyntaxSpan(int Start, int Length, QuickViewSyntaxKind Kind);
+
+public sealed record QuickViewSyntaxResult(
+    string? Language,
+    IReadOnlyList<QuickViewSyntaxSpan> Spans,
+    bool IsTruncated = false);
+
+public interface IQuickViewSyntaxHighlighter
+{
+    QuickViewSyntaxResult Highlight(
+        string path,
+        string content,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed record QuickViewVersion(long Length, DateTimeOffset ModifiedAt)
 {
     public long? ContainerLength { get; init; }
@@ -82,6 +110,9 @@ public sealed record QuickViewChunk
     public required QuickViewDisplayMode EffectiveMode { get; init; }
     public required string EncodingName { get; init; }
     public required bool IsBinary { get; init; }
+    public string? SyntaxLanguage { get; init; }
+    public IReadOnlyList<QuickViewSyntaxSpan> SyntaxSpans { get; init; } = [];
+    public bool IsSyntaxHighlightingTruncated { get; init; }
     public bool HasPrevious => Offset > 0;
     public bool HasNext => NextOffset < Version.Length;
 }

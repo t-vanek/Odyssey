@@ -614,16 +614,29 @@
           <TextBlock Text="{Binding QuickView.Error}" Foreground="#F0A0A0" TextWrapping="Wrap" />
         </Border>
 
-        <TextBox Grid.Row="3" Text="{Binding QuickView.Content}" IsReadOnly="True" AcceptsReturn="True"
-                 TextWrapping="NoWrap" FontFamily="monospace" FontSize="12" Padding="10"
-                 ScrollViewer.VerticalScrollBarVisibility="Auto"
-                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                 AutomationProperties.Name="{DynamicResource QuickView}" />
+        <Grid Grid.Row="3">
+          <TextBox Text="{Binding QuickView.Content}" IsReadOnly="True" AcceptsReturn="True"
+                   TextWrapping="NoWrap" FontFamily="monospace" FontSize="12" Padding="10"
+                   ScrollViewer.VerticalScrollBarVisibility="Auto"
+                   ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                   IsVisible="{Binding QuickView.ShowPlainContent}"
+                   AutomationProperties.Name="{DynamicResource QuickView}" />
+          <Border Background="#090B0E" BorderBrush="#39414C" BorderThickness="1" CornerRadius="4"
+                  IsVisible="{Binding QuickView.HasSyntaxHighlighting}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+              <vm:SyntaxTextViewer ContentText="{Binding QuickView.Content}"
+                                   SyntaxSpans="{Binding QuickView.SyntaxSpans}"
+                                   TextWrapping="NoWrap" FontFamily="monospace" FontSize="12" Padding="10"
+                                   AutomationProperties.Name="{DynamicResource QuickView}" />
+            </ScrollViewer>
+          </Border>
+        </Grid>
 
         <Grid Grid.Row="4" ColumnDefinitions="*,Auto" ColumnSpacing="10">
           <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
             <TextBlock Text="{Binding QuickView.OffsetSummary}" Classes="muted" />
             <TextBlock Text="{Binding QuickView.EffectiveEncoding}" Foreground="#7DA7D9" />
+            <TextBlock Text="{Binding QuickView.SyntaxStatus}" Foreground="#C792EA" />
             <TextBlock Text="{Binding QuickView.Status}" Classes="muted" />
           </StackPanel>
           <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="7">

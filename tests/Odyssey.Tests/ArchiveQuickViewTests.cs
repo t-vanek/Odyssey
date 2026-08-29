@@ -67,6 +67,21 @@ public sealed class ArchiveQuickViewTests : IDisposable
     }
 
     [Fact]
+    public async Task SourceEntry_IsSyntaxHighlightedWithoutExtraction()
+    {
+        Directory.CreateDirectory(_root);
+        var archivePath = CreateZip("source.zip", ("src/Program.cs", "public class Program { }"));
+
+        var chunk = await new QuickViewService(new SafeArchiveService()).ReadAsync(
+            ArchiveRequest(archivePath, "src/Program.cs"));
+
+        Assert.Equal("C#", chunk.SyntaxLanguage);
+        Assert.Contains(chunk.SyntaxSpans, span => span.Kind == QuickViewSyntaxKind.Keyword
+                                                  && chunk.Content.Substring(span.Start, span.Length) == "class");
+        Assert.False(File.Exists(Path.Combine(_root, "Program.cs")));
+    }
+
+    [Fact]
     public async Task ChangedArchive_InvalidatesThePreviewVersion()
     {
         Directory.CreateDirectory(_root);
