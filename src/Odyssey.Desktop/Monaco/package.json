@@ -7,7 +7,7 @@
     "build": "node build.mjs"
   },
   "dependencies": {
-    "monaco-editor": "0.53.0"
+    "monaco-editor": "0.56.0"
   },
   "devDependencies": {
     "esbuild": "0.28.2"
