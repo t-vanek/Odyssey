@@ -126,7 +126,7 @@ jobs:
 
       - name: Upload release test report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-test-results
           path: TestResults/**
@@ -134,7 +134,7 @@ jobs:
           retention-days: 30
 
       - name: Upload verified native assets
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-linux-x64
           path: artifacts/native/linux-x64
@@ -255,7 +255,7 @@ jobs:
           tar -tzf "${{ matrix.archive }}" >/dev/null
 
       - name: Upload platform package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: package-${{ matrix.rid }}
           path: ${{ matrix.archive }}
