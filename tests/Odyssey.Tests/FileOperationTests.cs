@@ -200,6 +200,33 @@ public sealed class FileOperationTests
     }
 
     [Fact]
+    public async Task TransferQueue_RetriesAtomicPersistenceWhileQueueFileIsBeingRead()
+    {
+        await using var environment = await TestEnvironment.CreateAsync();
+        var operations = new PauseAwareOperationService();
+        await using var queue = new FileTransferQueueService(operations, environment.Storage);
+        await queue.InitializeAsync();
+        var queuePath = Path.Combine(environment.Storage.DirectoryPath, "transfer-queue.json");
+        await using var reader = new FileStream(queuePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        var enqueue = queue.EnqueueAsync([new FileTransferRequest
+        {
+            Kind = FileOperationKind.Copy,
+            SourcePath = Path.Combine(environment.Root, "source.bin"),
+            DestinationDirectory = environment.Root
+        }]);
+        if (OperatingSystem.IsWindows())
+        {
+            await Task.Delay(75);
+            Assert.False(enqueue.IsCompleted);
+        }
+
+        await reader.DisposeAsync();
+        var job = Assert.Single(await enqueue.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Contains(job.Id.ToString(), await File.ReadAllTextAsync(queuePath), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task TransferQueue_PausesRunningWorkAndResumesItAsANewAttempt()
     {
         await using var environment = await TestEnvironment.CreateAsync();

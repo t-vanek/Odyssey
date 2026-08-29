@@ -349,9 +349,28 @@ public sealed class FileTransferQueueService : IFileTransferQueueService
                 await JsonSerializer.SerializeAsync(stream, snapshot, JsonOptions, cancellationToken);
                 await stream.FlushAsync(cancellationToken);
             }
-            File.Move(temporaryPath, _queuePath, overwrite: true);
+            await PublishQueueFileAsync(temporaryPath, cancellationToken).ConfigureAwait(false);
         }
         finally { _saveGate.Release(); }
+    }
+
+    private async Task PublishQueueFileAsync(string temporaryPath, CancellationToken cancellationToken)
+    {
+        const int maximumAttempts = 8;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(temporaryPath, _queuePath, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && attempt < maximumAttempts)
+            {
+                // Windows denies atomic replacement while a short-lived reader or scanner has the
+                // destination open without delete sharing. Keep the complete temporary snapshot and retry.
+                await Task.Delay(Math.Min(25 * attempt, 200), cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
 
     private static void ValidateRequest(FileTransferRequest request)
