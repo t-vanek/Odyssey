@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Formats.Tar;
 using Odyssey.Core;
 using SharpSevenZip;
 
@@ -23,7 +24,8 @@ public sealed partial class SafeArchiveService : IArchiveService, IArchiveMutati
             new ArchiveFormatSupport("ZIP", [".zip"], ArchiveCapabilities.Browse | ArchiveCapabilities.Extract
                 | ArchiveCapabilities.Create | ArchiveCapabilities.Update | ArchiveCapabilities.DeleteEntries, true),
             NativeFormat("7z", [".7z"]),
-            NativeFormat("TAR", [".tar"]),
+            new ArchiveFormatSupport("TAR", [".tar"], ArchiveCapabilities.Browse | ArchiveCapabilities.Extract
+                | ArchiveCapabilities.Create, true),
             NativeFormat("TAR.GZ", [".tar.gz", ".tgz"]),
             NativeFormat("GZip", [".gz"]),
             NativeFormat("BZip2", [".bz2"]),
@@ -195,6 +197,13 @@ public sealed partial class SafeArchiveService : IArchiveService, IArchiveMutati
             return;
         }
 
+        if (IsTar(archivePath))
+        {
+            await ExtractTarEntriesAsync(archivePath, selectedPath, selectedIsDirectory, selected, stagedItem,
+                report, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         await Task.Run(async () =>
         {
             using var archive = new SharpSevenZipExtractor(archivePath);
@@ -219,10 +228,47 @@ public sealed partial class SafeArchiveService : IArchiveService, IArchiveMutati
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    private async Task ExtractTarEntriesAsync(
+        string archivePath,
+        string selectedPath,
+        bool selectedIsDirectory,
+        IReadOnlyList<EntryDescriptor> selected,
+        string stagedItem,
+        Action<int> report,
+        CancellationToken cancellationToken)
+    {
+        var selectedByIndex = selected.ToDictionary(item => item.Index);
+        await using var input = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read,
+            BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        await using var archive = new TarReader(input, leaveOpen: false);
+        var index = 0;
+        while (await archive.GetNextEntryAsync(copyData: false, cancellationToken).ConfigureAwait(false) is { } entry)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!selectedByIndex.TryGetValue(index++, out var descriptor)) continue;
+            var destination = ResolveStagedPath(selectedPath, selectedIsDirectory, descriptor, stagedItem);
+            if (descriptor.IsDirectory)
+            {
+                Directory.CreateDirectory(destination);
+                continue;
+            }
+            if (!IsTarRegularFile(entry.EntryType) || entry.DataStream is null)
+                throw new InvalidDataException("Special TAR entries are not extracted.");
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            await using var output = CreateOutput(destination);
+            await CopyExactlyAsync(entry.DataStream, output, descriptor.Size, descriptor.Path, report,
+                cancellationToken).ConfigureAwait(false);
+            await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+            ApplyModifiedTime(destination, descriptor.ModifiedAt);
+        }
+    }
+
     private Task<IReadOnlyList<EntryDescriptor>> ScanAsync(string archivePath, CancellationToken cancellationToken) =>
         Task.Run<IReadOnlyList<EntryDescriptor>>(() => IsZip(archivePath)
             ? ScanZip(archivePath, cancellationToken)
-            : ScanNative(archivePath, cancellationToken), cancellationToken);
+            : IsTar(archivePath)
+                ? ScanTar(archivePath, cancellationToken)
+                : ScanNative(archivePath, cancellationToken), cancellationToken);
 
     private IReadOnlyList<EntryDescriptor> ScanZip(string archivePath, CancellationToken token)
     {
@@ -277,6 +323,40 @@ public sealed partial class SafeArchiveService : IArchiveService, IArchiveMutati
                 entries.Add(new EntryDescriptor((int)entry.Index, path, path.Split('/')[^1], entry.IsDirectory,
                     size, null, ToDateTimeOffset(entry.LastWriteTime), entry.Encrypted,
                     IsNativeLink(entry.Attributes)));
+            }
+            return entries;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not InvalidDataException)
+        {
+            throw new InvalidDataException("The archive is corrupt or unsupported.", ex);
+        }
+    }
+
+    private IReadOnlyList<EntryDescriptor> ScanTar(string archivePath, CancellationToken token)
+    {
+        try
+        {
+            using var stream = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                BufferSize, FileOptions.SequentialScan);
+            using var archive = new TarReader(stream, leaveOpen: false);
+            var entries = new List<EntryDescriptor>();
+            var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var total = 0L;
+            TarEntry? entry;
+            while ((entry = archive.GetNextEntry(copyData: false)) is not null)
+            {
+                token.ThrowIfCancellationRequested();
+                if (entries.Count >= _limits.MaximumEntries)
+                    throw new InvalidDataException("Archive entry-count limit exceeded.");
+                var isDirectory = entry.EntryType == TarEntryType.Directory;
+                var isRegular = IsTarRegularFile(entry.EntryType);
+                var path = NormalizeEntryPath(entry.Name, isDirectory);
+                if (!paths.Add(path))
+                    throw new InvalidDataException("Archive contains duplicate or case-colliding paths.");
+                var size = isRegular ? entry.Length : 0;
+                ValidateEntryQuota(size, null, ref total);
+                entries.Add(new EntryDescriptor(entries.Count, path, path.Split('/')[^1], isDirectory,
+                    size, null, entry.ModificationTime, false, !isDirectory && !isRegular));
             }
             return entries;
         }
@@ -419,6 +499,9 @@ public sealed partial class SafeArchiveService : IArchiveService, IArchiveMutati
         _nativeAvailable ? null : "The native 7-Zip engine is unavailable.");
 
     private static bool IsZip(string path) => path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
+    private static bool IsTar(string path) => path.EndsWith(".tar", StringComparison.OrdinalIgnoreCase);
+    private static bool IsTarRegularFile(TarEntryType type) =>
+        type is TarEntryType.RegularFile or TarEntryType.V7RegularFile;
     private static bool IsZipLink(int attributes) => IsUnixLink(unchecked((uint)attributes))
                                                       || ((FileAttributes)attributes).HasFlag(FileAttributes.ReparsePoint);
     private static bool IsNativeLink(uint attributes) => IsUnixLink(attributes)

@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Formats.Tar;
 using System.Text.Json;
 using Odyssey.Core;
 using Odyssey.Infrastructure;
@@ -29,10 +30,99 @@ public sealed class ArchiveTests : IDisposable
             service.GetCapabilities(archivePath));
         Assert.DoesNotContain(service.Formats.Where(format => format.Name != "ZIP"),
             format => format.Capabilities.HasFlag(ArchiveCapabilities.Update));
+        Assert.Equal(ArchiveCapabilities.Browse | ArchiveCapabilities.Extract | ArchiveCapabilities.Create,
+            service.Formats.Single(format => format.Name == "TAR").Capabilities);
+        Assert.True(service.Formats.Single(format => format.Name == "TAR").IsAvailable);
 
         var provider = new ArchiveFileLocationProvider(service);
         Assert.Equal(FileLocationCapabilities.Browse | FileLocationCapabilities.Read, provider.Capabilities);
         Assert.Equal(2, (await provider.ListAsync(string.Empty, archivePath)).Count);
+    }
+
+    [Fact]
+    public async Task Tar_CreationIsDeterministicBrowsableAndExtractableWithoutNativeEngine()
+    {
+        Directory.CreateDirectory(_root);
+        var source = Directory.CreateDirectory(Path.Combine(_root, "package"));
+        var nested = Directory.CreateDirectory(Path.Combine(source.FullName, "nested"));
+        Directory.CreateDirectory(Path.Combine(source.FullName, "empty"));
+        var file = Path.Combine(nested.FullName, "note.txt");
+        await File.WriteAllTextAsync(file, "managed tar content");
+        var timestamp = new DateTime(2025, 2, 3, 4, 5, 6, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(file, timestamp);
+        Directory.SetLastWriteTimeUtc(nested.FullName, timestamp);
+        Directory.SetLastWriteTimeUtc(Path.Combine(source.FullName, "empty"), timestamp);
+        Directory.SetLastWriteTimeUtc(source.FullName, timestamp);
+        var first = Path.Combine(_root, "first.tar");
+        var second = Path.Combine(_root, "second.tar");
+        var destination = Directory.CreateDirectory(Path.Combine(_root, "extracted")).FullName;
+        var service = new SafeArchiveService { AccessMode = FileAccessMode.ManageFiles };
+
+        await service.CreateAsync(first, [source.FullName]);
+        await service.CreateAsync(second, [source.FullName]);
+
+        Assert.Equal(await File.ReadAllBytesAsync(first), await File.ReadAllBytesAsync(second));
+        Assert.Equal(ArchiveCapabilities.Browse | ArchiveCapabilities.Extract | ArchiveCapabilities.Create,
+            service.GetCapabilities(first));
+        Assert.Equal(["empty", "nested"],
+            (await service.ListAsync(first, "package")).Select(item => item.Name).Order().ToArray());
+        await service.ExtractAsync(first, "package", destination);
+        Assert.Equal("managed tar content",
+            await File.ReadAllTextAsync(Path.Combine(destination, "package", "nested", "note.txt")));
+        Assert.True(Directory.Exists(Path.Combine(destination, "package", "empty")));
+        Assert.DoesNotContain(Directory.EnumerateFileSystemEntries(_root), path =>
+            Path.GetFileName(path).Contains(".odyssey-new-", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("../escape.txt")]
+    [InlineData("folder/../../escape.txt")]
+    [InlineData("/absolute.txt")]
+    public async Task Tar_PathTraversalAndAbsoluteNamesAreRejected(string hostileName)
+    {
+        Directory.CreateDirectory(_root);
+        var archivePath = Path.Combine(_root, "hostile.tar");
+        CreateTarAt(archivePath, (hostileName, "hostile"));
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => new SafeArchiveService().ListAsync(archivePath));
+        Assert.False(File.Exists(Path.Combine(_root, "escape.txt")));
+    }
+
+    [Fact]
+    public async Task Tar_SpecialEntriesAreVisibleButNeverExtracted()
+    {
+        Directory.CreateDirectory(_root);
+        var archivePath = Path.Combine(_root, "link.tar");
+        using (var stream = File.Create(archivePath))
+        using (var writer = new TarWriter(stream, leaveOpen: false))
+        {
+            writer.WriteEntry(new PaxTarEntry(TarEntryType.SymbolicLink, "link")
+            {
+                LinkName = "../../outside"
+            });
+        }
+        var destination = Directory.CreateDirectory(Path.Combine(_root, "destination")).FullName;
+        var service = new SafeArchiveService { AccessMode = FileAccessMode.ManageFiles };
+
+        Assert.True(Assert.Single(await service.ListAsync(archivePath)).IsSymbolicLink);
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            service.ExtractAsync(archivePath, "link", destination));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(destination));
+    }
+
+    [Fact]
+    public async Task Tar_CorruptionAndCaseCollisionsAreRejected()
+    {
+        Directory.CreateDirectory(_root);
+        var collision = Path.Combine(_root, "collision.tar");
+        CreateTarAt(collision, ("Readme.txt", "one"), ("README.TXT", "two"));
+        var corrupt = Path.Combine(_root, "corrupt.tar");
+        var bytes = new byte[1024];
+        Random.Shared.NextBytes(bytes);
+        await File.WriteAllBytesAsync(corrupt, bytes);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => new SafeArchiveService().ListAsync(collision));
+        await Assert.ThrowsAsync<InvalidDataException>(() => new SafeArchiveService().ListAsync(corrupt));
     }
 
     [Theory]
@@ -344,6 +434,53 @@ public sealed class ArchiveTests : IDisposable
     }
 
     [Fact]
+    public async Task Tar_CancellationReadOnlyAndSourceLinkGuardsPublishNothing()
+    {
+        Directory.CreateDirectory(_root);
+        var source = Path.Combine(_root, "large.bin");
+        await File.WriteAllBytesAsync(source, new byte[4 * 1024 * 1024]);
+        var link = Path.Combine(_root, "source-link.bin");
+        File.CreateSymbolicLink(link, source);
+        var cancelledArchive = Path.Combine(_root, "cancelled.tar");
+        var linkedArchive = Path.Combine(_root, "linked.tar");
+        var readOnlyArchive = Path.Combine(_root, "readonly.tar");
+        var writable = new SafeArchiveService { AccessMode = FileAccessMode.ManageFiles };
+        using var cancellation = new CancellationTokenSource();
+        var progress = new InlineProgress<FileOperationProgress>(_ => cancellation.Cancel());
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => writable.CreateAsync(
+            cancelledArchive, [source], progress, cancellation.Token));
+        await Assert.ThrowsAsync<IOException>(() => writable.CreateAsync(linkedArchive, [link]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new SafeArchiveService().CreateAsync(readOnlyArchive, [source]));
+
+        Assert.False(File.Exists(cancelledArchive));
+        Assert.False(File.Exists(linkedArchive));
+        Assert.False(File.Exists(readOnlyArchive));
+        Assert.DoesNotContain(Directory.EnumerateFiles(_root), path =>
+            Path.GetFileName(path).Contains(".odyssey-new-", StringComparison.Ordinal)
+            || Path.GetFileName(path).Contains(".odyssey-backup-", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Tar_DoesNotAdvertiseOrAcceptUpdateAndDeleteMutations()
+    {
+        Directory.CreateDirectory(_root);
+        var source = Path.Combine(_root, "source.txt");
+        await File.WriteAllTextAsync(source, "source");
+        var archivePath = Path.Combine(_root, "created.tar");
+        var service = new SafeArchiveService { AccessMode = FileAccessMode.ManageFiles };
+        await service.CreateAsync(archivePath, [source]);
+        var before = await File.ReadAllBytesAsync(archivePath);
+
+        Assert.False(service.GetCapabilities(archivePath).HasFlag(ArchiveCapabilities.Update));
+        Assert.False(service.GetCapabilities(archivePath).HasFlag(ArchiveCapabilities.DeleteEntries));
+        await Assert.ThrowsAsync<NotSupportedException>(() => service.AddAsync(archivePath, source));
+        await Assert.ThrowsAsync<NotSupportedException>(() => service.DeleteAsync(archivePath, "source.txt"));
+        Assert.Equal(before, await File.ReadAllBytesAsync(archivePath));
+    }
+
+    [Fact]
     public async Task Zip_ReplaceRemovesConflictingFileAncestorAndKeepBothRefusesInvalidTree()
     {
         Directory.CreateDirectory(_root);
@@ -516,6 +653,41 @@ public sealed class ArchiveTests : IDisposable
     }
 
     [Fact]
+    public async Task ArchiveRecovery_CompletesValidatedTarReplacementAndRemovesBackup()
+    {
+        Directory.CreateDirectory(_root);
+        var archivePath = Path.Combine(_root, "recover.tar");
+        CreateTarAt(archivePath, ("value.txt", "old"));
+        var storage = new ApplicationStorage(Path.Combine(_root, "app"));
+        var transactionId = Guid.NewGuid();
+        var temporary = RecoveryTemporaryPath(archivePath, transactionId);
+        var backup = archivePath + $".odyssey-backup-{transactionId:N}";
+        CreateTarAt(temporary, ("value.txt", "new"));
+        File.Move(archivePath, backup);
+        WriteRecoveryManifest(storage, new ArchiveRecoveryManifest
+        {
+            SchemaVersion = ArchiveRecoveryManifest.CurrentSchemaVersion,
+            TransactionId = transactionId,
+            DestinationPath = archivePath,
+            TemporaryPath = temporary,
+            BackupPath = backup,
+            OriginalExisted = true,
+            State = ArchiveRecoveryState.OriginalBackedUp,
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        var service = new SafeArchiveService(storage: storage);
+
+        var report = await service.RecoverAsync();
+
+        Assert.True(report.IsSuccessful);
+        Assert.Equal(1, report.RecoveredTransactions);
+        Assert.Equal("new", await ReadTarTextAsync(archivePath, "value.txt"));
+        Assert.False(File.Exists(temporary));
+        Assert.False(File.Exists(backup));
+        Assert.Empty(Directory.EnumerateFiles(Path.Combine(storage.DirectoryPath, "archive-recovery")));
+    }
+
+    [Fact]
     public async Task Zip_PublicationFailureAfterBackupRestoresByteIdenticalOriginalAndClearsJournal()
     {
         Directory.CreateDirectory(_root);
@@ -661,7 +833,7 @@ public sealed class ArchiveTests : IDisposable
 
     private static string RecoveryTemporaryPath(string archivePath, Guid transactionId) =>
         Path.Combine(Path.GetDirectoryName(archivePath)!,
-            $".{Path.GetFileNameWithoutExtension(archivePath)}.odyssey-new-{transactionId:N}.zip");
+            $".{Path.GetFileNameWithoutExtension(archivePath)}.odyssey-new-{transactionId:N}{Path.GetExtension(archivePath)}");
 
     private static string WriteRecoveryManifest(ApplicationStorage storage, ArchiveRecoveryManifest manifest)
     {
@@ -683,6 +855,21 @@ public sealed class ArchiveTests : IDisposable
         }
     }
 
+    private static void CreateTarAt(string path, params (string Path, string Content)[] entries)
+    {
+        using var stream = File.Create(path);
+        using var archive = new TarWriter(stream, leaveOpen: false);
+        foreach (var item in entries)
+        {
+            using var data = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(item.Content));
+            archive.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, item.Path)
+            {
+                DataStream = data,
+                ModificationTime = DateTimeOffset.UnixEpoch
+            });
+        }
+    }
+
     private static async Task<string> ReadZipTextAsync(string archivePath, string entryPath)
     {
         await using var stream = File.OpenRead(archivePath);
@@ -690,6 +877,20 @@ public sealed class ArchiveTests : IDisposable
         await using var entry = archive.GetEntry(entryPath)!.Open();
         using var reader = new StreamReader(entry);
         return await reader.ReadToEndAsync();
+    }
+
+    private static async Task<string> ReadTarTextAsync(string archivePath, string entryPath)
+    {
+        await using var stream = File.OpenRead(archivePath);
+        await using var archive = new TarReader(stream, leaveOpen: false);
+        while (await archive.GetNextEntryAsync(copyData: false) is { } entry)
+        {
+            if (!string.Equals(entry.Name, entryPath, StringComparison.Ordinal)) continue;
+            Assert.NotNull(entry.DataStream);
+            using var reader = new StreamReader(entry.DataStream!, leaveOpen: true);
+            return await reader.ReadToEndAsync();
+        }
+        throw new Xunit.Sdk.XunitException($"TAR entry was not found: {entryPath}");
     }
 
     private string CreateZip(string name, params (string Path, string Content)[] entries)

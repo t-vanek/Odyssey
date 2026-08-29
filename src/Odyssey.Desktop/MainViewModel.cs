@@ -2302,7 +2302,14 @@ public sealed class MainViewModel : ObservableObject
             "archive.zip");
         if (string.IsNullOrWhiteSpace(name)) return;
         name = name.Trim();
-        if (!name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) name += ".zip";
+        var extension = Path.GetExtension(name);
+        if (extension.Length == 0) name += ".zip";
+        else if (!extension.Equals(".zip", StringComparison.OrdinalIgnoreCase)
+                 && !extension.Equals(".tar", StringComparison.OrdinalIgnoreCase))
+        {
+            StatusMessage = _localization["ArchiveNameInvalid"];
+            return;
+        }
         if (!string.Equals(Path.GetFileName(name), name, StringComparison.Ordinal)
             || name is "." or ".." || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
         {

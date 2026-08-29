@@ -1,6 +1,6 @@
 # Odyssey Commander modernization roadmap
 
-Last audited: 2026-08-29. This file describes the checked-out working tree, including the pre-existing uncommitted work. It is an evidence-based implementation ledger, not a product promise.
+Last audited: 2026-08-29. This file describes the checked-out working tree. It is an evidence-based implementation ledger, not a product promise.
 
 Status meanings:
 
@@ -42,8 +42,14 @@ Status meanings:
 - Stage N1 — verified native dependency packaging: **Done**.
   - CI builds the Linux x64 7-Zip 26.02 shared library from an exact upstream commit and runs native archive tests through `ODYSSEY_7ZIP_LIBRARY`. Release packaging verifies the SharpSevenZip-supplied Windows x64 DLL by SHA-256, removes wrong-platform payloads, and includes the correct native library, both license texts, third-party notices, and an internal asset manifest.
   - Finished ZIP/TAR.GZ release containers are extracted and their declared native hashes are independently checked before publication. Runtime selection preflights both loading and the expected `CreateObject` export, then safely falls back to another compatible candidate if necessary; it never downloads code.
-  - Stage verification on Linux: Debug and release builds 0 warnings/errors; full suite 134/134 with the freshly built native engine; stability scenarios 5/5 in three consecutive runs; local staging and final-container verification passed for both RIDs, including a complete self-contained Linux package; NuGet audit found no vulnerable direct or transitive package; `actionlint` and `git diff --check` passed. The hosted Windows job and a tagged GitHub Release were not executed locally.
-- Next production stage: writable TAR creation with transactional replacement and reproducible fixtures. Writable 7z remains gated on a supported writer and rollback coverage; do not advertise either capability early.
+  - Stage verification: Debug and Release builds 0 warnings/errors; full suite 134/134 with the freshly built native engine; stability scenarios 5/5 in three consecutive runs; local staging and final-container verification passed for both RIDs, including a complete self-contained Linux package; NuGet audit, `actionlint` and `git diff --check` passed. Subsequent hosted Linux/Windows CI and the `0.0.0.1-preview` release workflow also completed successfully.
+- Stage A2c — managed transactional TAR creation: **Done**.
+  - Plain `.tar` browsing, bounded listing and staged extraction now use `System.Formats.Tar` and remain available without the native 7-Zip engine. Special/link entries are inspectable but never extracted.
+  - The archive dialog accepts an explicit `.zip` or `.tar` filename. TAR creation streams deterministic PAX entries with fixed ownership fields, source timestamps and explicit empty directories into a transaction-named sibling, rescans the complete result, and only then publishes it.
+  - ZIP/TAR recovery manifests share the strict canonical-path and link checks but validate artifacts with the destination format. TAR advertises Create only; Add/Replace/Delete remain capability-rejected and the original is preserved on cancellation or validation failure.
+  - Automated fixtures cover deterministic output, nested files and empty directories, managed browse/extract, traversal/absolute names, special entries, case collisions, corruption, cancellation, read-only/source-link enforcement, capability enforcement, TAR recovery and the `.tar` UI selection.
+  - Stage verification: targeted archive/Commander suite 45/45 in three consecutive runs; full suite 146/146; stability scenarios 5/5 in three consecutive runs; Debug and Release builds 0 warnings/errors; NuGet audit found no vulnerable direct or transitive package; `git diff --check` passed. Cross-platform hosted CI remains to be recorded after the stage commit is pushed.
+- Next production stage: Multi-Rename immutable preview and validation model, followed by its two-phase executor and whole-batch Undo. Writable 7z remains gated on a supported writer and rollback coverage; do not advertise it early.
 
 ## 1. Keyboard-first Commander UX
 
@@ -75,17 +81,17 @@ Overall: **Partial**. Browsing/extraction plus crash-recoverable transactional Z
 |---|---|---|
 | Open archives in panel; navigation/tabs/history/filter | Done | Archive provider is wired into both panes; archive location survives tab/workspace restore only after target-boundary and availability validation. |
 | ZIP browse/extract | Done | Managed streaming implementation with hostile/corrupt archive tests. |
-| 7z/TAR/TAR.GZ/GZip/BZip2/XZ/RAR browse/extract | Partial | Releases now bundle a verified RID-specific 7-Zip engine and Linux CI executes a real 7z create/read scenario against its pinned source build. A complete hostile/corrupt fixture matrix for every listed non-ZIP format is still missing. |
+| 7z/TAR/TAR.GZ/GZip/BZip2/XZ/RAR browse/extract | Partial | Plain TAR now has an always-available managed reader/extractor with hostile, corrupt, link and case-collision fixtures. The remaining formats use the verified RID-specific 7-Zip engine; a complete hostile/corrupt fixture matrix for each remains missing. |
 | Read/write capability flags | Done | ZIP advertises tested create/update/delete; other formats advertise browse/extract only when available. |
 | Secure file/tree extraction | Done | Canonical path checks, link rejection, quotas, free-space preflight, guarded streaming, cancellation cleanup and destination staging/publish are implemented. |
 | Shared progress/cancel/retry/restart queue | Done | Archive→local jobs use the durable transfer queue; restart-during-extraction test passes. Byte-range resume within a compressed entry is not claimed. |
-| ZIP/7z/TAR creation | Partial | Multi-selection ZIP creation is wired and tested. 7z and TAR creation are not implemented. |
+| ZIP/7z/TAR creation | Partial | Multi-selection ZIP and deterministic plain-TAR creation are wired and tested. 7z creation is not implemented. |
 | Add/replace/delete entries | Partial | ZIP supports Fail/Skip/KeepBoth/Replace and transactional tree deletion. Other formats are read-only. |
 | Local→archive and archive→archive | Partial | Local→ZIP and controlled archive→ZIP relay use the durable queue. Non-ZIP destinations are capability-rejected. |
-| Transactional archive rewrite/original preservation | Partial | ZIP writes a validated sibling, journals publication, restores caught failures and reconciles crash states at startup. Injected post-backup rollback and hostile recovery manifests pass. Mutation Undo and extraction-staging recovery remain missing. |
+| Transactional archive rewrite/original preservation | Partial | ZIP mutations and TAR creation write and validate a sibling, journal publication, restore caught failures and reconcile format-validated crash states at startup. Injected post-backup rollback and ZIP/TAR recovery pass. Mutation Undo and extraction-staging recovery remain missing. |
 | Archive-entry Quick View/bounded cache | Not started | F3 reports the limitation; users can extract with F5. |
 
-Remaining archive safety gates include mutation Undo (or an explicit user recovery workflow), extraction-stage crash cleanup, writable 7z/TAR fixture coverage, and proof that metadata not understood by each future writer is not silently weakened. Managed ZIP rewrites deliberately reject links and use store mode to remain within Odyssey's own compression-ratio policy.
+Remaining archive safety gates include mutation Undo (or an explicit user recovery workflow), extraction-stage crash cleanup, writable 7z coverage, and proof that metadata not understood by each future writer is not silently weakened. Managed ZIP rewrites deliberately reject links and use store mode to remain within Odyssey's own compression-ratio policy. TAR is creation-only, so Odyssey never rewrites or silently weakens metadata from an existing TAR.
 
 ## 3. Multi-Rename
 
@@ -166,7 +172,7 @@ Secure erase remains intentionally absent. It must not be offered where physical
 ## Cross-cutting release gates
 
 - Read-only enforcement, canonical boundary validation, link/reparse safety, streaming/cancellation, atomic publication, credential redaction, capability enforcement, localization parity, and bounded UI lists are mandatory for every stage.
-- Tests still specifically missing from the target acceptance list: writable 7z/TAR fixtures; batch rename cycles/collisions/rollback; sync restart/mirror deletion; remote resume with changed endpoint; injected low-space and disk/server disconnect; credential-persistence scan across every future provider; very-large preview memory; and capability enforcement for future writable/remote providers. ZIP traversal, source/destination links, case/name collisions, quota, corruption, cancellation, conflict preservation, create/add/delete, archive capability, active-pane routing, queue restart, post-backup rollback, crash recovery, forged recovery paths and controlled relay/link cleanup now pass.
+- Tests still specifically missing from the target acceptance list: writable 7z fixtures; batch rename cycles/collisions/rollback; sync restart/mirror deletion; remote resume with changed endpoint; injected low-space and disk/server disconnect; credential-persistence scan across every future provider; very-large preview memory; and capability enforcement for future writable/remote providers. ZIP/TAR traversal, source/destination links, case/name collisions, quota, corruption, cancellation, creation, archive capability and crash recovery now pass; ZIP additionally covers conflict policies, add/delete, active-pane queue routing, restart, post-backup rollback, forged recovery paths and controlled relay/link cleanup.
 - Final verification is not yet claimable. At the end of every completed stage run relevant tests and `dotnet build --no-restore`; before a release run the complete suite, repeated stability scenarios, vulnerability audit, `git diff --check`, and available Windows/Linux builds.
 
 ## Explicit exclusions

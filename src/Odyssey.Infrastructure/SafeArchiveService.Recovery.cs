@@ -119,9 +119,12 @@ public sealed partial class SafeArchiveService
         var destinationExists = File.Exists(manifest.DestinationPath);
         var temporaryExists = File.Exists(manifest.TemporaryPath);
         var backupExists = manifest.BackupPath is not null && File.Exists(manifest.BackupPath);
-        if (destinationExists) ValidateRecoverableZip(manifest.DestinationPath, cancellationToken);
-        if (temporaryExists) ValidateRecoverableZip(manifest.TemporaryPath, cancellationToken);
-        if (backupExists) ValidateRecoverableZip(manifest.BackupPath!, cancellationToken);
+        if (destinationExists) ValidateRecoverableArchive(
+            manifest.DestinationPath, manifest.DestinationPath, cancellationToken);
+        if (temporaryExists) ValidateRecoverableArchive(
+            manifest.TemporaryPath, manifest.DestinationPath, cancellationToken);
+        if (backupExists) ValidateRecoverableArchive(
+            manifest.BackupPath!, manifest.DestinationPath, cancellationToken);
 
         if (manifest.State == ArchiveRecoveryState.Published)
         {
@@ -179,10 +182,15 @@ public sealed partial class SafeArchiveService
         DeleteRegularFileIfPresent(manifestPath);
     }
 
-    private void ValidateRecoverableZip(string path, CancellationToken cancellationToken)
+    private void ValidateRecoverableArchive(
+        string path,
+        string destinationPath,
+        CancellationToken cancellationToken)
     {
         ValidateRegularFile(path, "Archive recovery artifact");
-        _ = ScanZip(path, cancellationToken);
+        if (IsZip(destinationPath)) _ = ScanZip(path, cancellationToken);
+        else if (IsTar(destinationPath)) _ = ScanTar(path, cancellationToken);
+        else throw new InvalidDataException("Recovery archive format is not writable.");
     }
 
     private static void ValidateRecoveryManifest(string manifestPath, ArchiveRecoveryManifest manifest)
@@ -195,8 +203,8 @@ public sealed partial class SafeArchiveService
         if (!string.Equals(Path.GetFileName(manifestPath), expectedName, StringComparison.Ordinal))
             throw new InvalidDataException("Recovery manifest filename does not match its transaction.");
         if (!Path.IsPathFullyQualified(manifest.DestinationPath)
-            || !manifest.DestinationPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Recovery destination is not an absolute ZIP path.");
+            || !IsZip(manifest.DestinationPath) && !IsTar(manifest.DestinationPath))
+            throw new InvalidDataException("Recovery destination is not an absolute writable archive path.");
         var destination = Path.GetFullPath(manifest.DestinationPath);
         var parent = Path.GetDirectoryName(destination)
                      ?? throw new InvalidDataException("Recovery destination has no parent directory.");
@@ -243,7 +251,7 @@ public sealed partial class SafeArchiveService
 
     private static string ExpectedTemporaryPath(string destination, Guid transactionId) =>
         Path.Combine(Path.GetDirectoryName(destination)!,
-            $".{Path.GetFileNameWithoutExtension(destination)}.odyssey-new-{transactionId:N}.zip");
+            $".{Path.GetFileNameWithoutExtension(destination)}.odyssey-new-{transactionId:N}{Path.GetExtension(destination)}");
 
     private static string ExpectedBackupPath(string destination, Guid transactionId) =>
         destination + $".odyssey-backup-{transactionId:N}";

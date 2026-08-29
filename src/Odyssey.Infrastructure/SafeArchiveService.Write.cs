@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Formats.Tar;
 using Odyssey.Core;
 
 namespace Odyssey.Infrastructure;
@@ -20,16 +21,19 @@ public sealed partial class SafeArchiveService
     {
         EnsureArchiveWriteEnabled();
         if (sourcePaths.Count == 0) throw new ArgumentException("At least one archive input is required.", nameof(sourcePaths));
-        var archive = ValidateWritableZipPath(archivePath);
+        var archive = ValidateCreatableArchivePath(archivePath);
         await EnsureRecoveredAsync(archive, cancellationToken).ConfigureAwait(false);
-        archive = ValidateWritableZipPath(archivePath);
+        archive = ValidateCreatableArchivePath(archivePath);
         if (File.Exists(archive)) throw new IOException("The destination archive already exists.");
         var additions = sourcePaths.SelectMany(source =>
             BuildSourceItems(source, string.Empty, archive, cancellationToken)).ToList();
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (additions.Any(item => !paths.Add(item.ArchivePath)))
             throw new InvalidDataException("Selected inputs produce duplicate or case-colliding archive paths.");
-        await RewriteZipAsync(archive, [], _ => false, additions, progress, cancellationToken).ConfigureAwait(false);
+        if (IsTar(archive))
+            await WriteTarAsync(archive, additions, progress, cancellationToken).ConfigureAwait(false);
+        else
+            await RewriteZipAsync(archive, [], _ => false, additions, progress, cancellationToken).ConfigureAwait(false);
         return new FileTransferOutcome(null, archive, false, false);
     }
 
@@ -154,6 +158,21 @@ public sealed partial class SafeArchiveService
         {
             throw new FileNotFoundException("Archive not found.", path);
         }
+        return path;
+    }
+
+    private string ValidateCreatableArchivePath(string archivePath)
+    {
+        if (string.IsNullOrWhiteSpace(archivePath))
+            throw new ArgumentException("Archive path is required.", nameof(archivePath));
+        var path = Path.GetFullPath(archivePath);
+        if (!IsZip(path) && !IsTar(path))
+            throw new NotSupportedException("Archive creation is supported only for ZIP and TAR.");
+        var parent = Path.GetDirectoryName(path)
+                     ?? throw new ArgumentException("Archive parent directory is required.", nameof(archivePath));
+        ValidateDestinationDirectory(parent);
+        if (File.Exists(path)) ValidateArchivePath(path);
+        else if (Directory.Exists(path)) throw new IOException("The archive path points to a directory.");
         return path;
     }
 
@@ -387,6 +406,80 @@ public sealed partial class SafeArchiveService
         }
     }
 
+    private async Task WriteTarAsync(
+        string archivePath,
+        IReadOnlyList<ArchiveSourceItem> additions,
+        IProgress<FileOperationProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        var expanded = additions.Where(item => !item.IsDirectory).Sum(item => item.Size);
+        if (additions.Count > _limits.MaximumEntries || expanded > _limits.MaximumExpandedBytes)
+            throw new InvalidDataException("Archive would exceed configured safety limits.");
+        EnsureFreeSpace(Path.GetDirectoryName(archivePath)!, expanded + 1024 * 1024);
+        var transactionId = Guid.NewGuid();
+        var temporary = ExpectedTemporaryPath(archivePath, transactionId);
+        var recoveryManifest = GetRecoveryManifestPath(archivePath, transactionId);
+        var completed = 0L;
+        try
+        {
+            await using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                             BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan))
+            await using (var writer = new TarWriter(output, TarEntryFormat.Pax, leaveOpen: true))
+            {
+                foreach (var addition in additions)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var entry = new PaxTarEntry(
+                        addition.IsDirectory ? TarEntryType.Directory : TarEntryType.RegularFile,
+                        addition.ArchivePath)
+                    {
+                        Gid = 0,
+                        Uid = 0,
+                        GroupName = string.Empty,
+                        UserName = string.Empty,
+                        Mode = addition.IsDirectory
+                            ? UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+                              | UnixFileMode.GroupRead | UnixFileMode.GroupExecute
+                              | UnixFileMode.OtherRead | UnixFileMode.OtherExecute
+                            : UnixFileMode.UserRead | UnixFileMode.UserWrite
+                              | UnixFileMode.GroupRead | UnixFileMode.OtherRead,
+                        ModificationTime = SafeTarTime(addition.ModifiedAt)
+                    };
+                    if (addition.IsDirectory)
+                    {
+                        await writer.WriteEntryAsync(entry, cancellationToken).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    var before = new FileInfo(addition.SourcePath);
+                    var length = before.Length;
+                    var modified = before.LastWriteTimeUtc;
+                    await using var source = new FileStream(addition.SourcePath, FileMode.Open, FileAccess.Read,
+                        FileShare.Read, BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                    await using var reporting = new ProgressReadStream(source, value =>
+                    {
+                        completed += value;
+                        progress?.Report(new FileOperationProgress(completed, expanded, addition.ArchivePath));
+                    });
+                    entry.DataStream = reporting;
+                    await writer.WriteEntryAsync(entry, cancellationToken).ConfigureAwait(false);
+                    var after = new FileInfo(addition.SourcePath);
+                    if (!after.Exists || after.Length != length || after.LastWriteTimeUtc != modified)
+                        throw new IOException($"Archive input changed while it was being read: {addition.SourcePath}");
+                }
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            _ = ScanTar(temporary, cancellationToken);
+            PublishArchiveReplacement(temporary, archivePath, transactionId, recoveryManifest);
+        }
+        catch
+        {
+            if (!File.Exists(recoveryManifest)) DeleteEntry(temporary);
+            throw;
+        }
+    }
+
     private static async Task CopyExactlyAsync(
         Stream source,
         Stream destination,
@@ -418,6 +511,9 @@ public sealed partial class SafeArchiveService
         var maximum = new DateTimeOffset(2107, 12, 31, 23, 59, 58, TimeSpan.Zero);
         return timestamp < minimum ? minimum : timestamp > maximum ? maximum : timestamp;
     }
+
+    private static DateTimeOffset SafeTarTime(DateTimeOffset value) =>
+        value < DateTimeOffset.UnixEpoch ? DateTimeOffset.UnixEpoch : value.ToUniversalTime();
 
     private void PublishArchiveReplacement(
         string temporary,
@@ -502,4 +598,47 @@ public sealed partial class SafeArchiveService
         DateTimeOffset ModifiedAt);
 
     private sealed record ArchiveConflictResolution(string RootPath, bool Skip, bool Replace);
+
+    private sealed class ProgressReadStream(Stream inner, Action<int> report) : Stream
+    {
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => inner.CanSeek;
+        public override bool CanWrite => false;
+        public override long Length => inner.Length;
+        public override long Position { get => inner.Position; set => inner.Position = value; }
+        public override void Flush() => inner.Flush();
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var read = inner.Read(buffer, offset, count);
+            if (read > 0) report(read);
+            return read;
+        }
+        public override int Read(Span<byte> buffer)
+        {
+            var read = inner.Read(buffer);
+            if (read > 0) report(read);
+            return read;
+        }
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            var read = await inner.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            if (read > 0) report(read);
+            return read;
+        }
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) inner.Dispose();
+            base.Dispose(disposing);
+        }
+        public override async ValueTask DisposeAsync()
+        {
+            await inner.DisposeAsync().ConfigureAwait(false);
+            GC.SuppressFinalize(this);
+        }
+    }
 }

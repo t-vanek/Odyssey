@@ -230,6 +230,47 @@ public sealed class AutomaticDriveTests
     }
 
     [Fact]
+    public async Task CommanderCreateArchive_PreservesExplicitTarFormatSelection()
+    {
+        await using var environment = await TestEnvironment.CreateAsync();
+        var root = Path.Combine(environment.Root, "files");
+        Directory.CreateDirectory(root);
+        await File.WriteAllTextAsync(Path.Combine(root, "one.txt"), "one");
+        var preferences = new UserPreferencesService(environment.Storage) { ReadOnlyMode = false };
+        var operations = new SafeFileOperationService(environment.Storage);
+        var archives = new SafeArchiveService();
+        var coordinator = new ScanCoordinator(
+            new PortableFileSystemScanner(new ConfigurableExclusionPolicy()),
+            new ExtensionFileClassifier(), environment.Store,
+            new ScanPipelineOptions(2, 16, 4), NullLogger<ScanCoordinator>.Instance);
+        var desktop = new ArchiveCreationDesktopInteraction("bundle.tar", confirm: true);
+        var viewModel = new MainViewModel(
+            environment.Store, coordinator, environment.Search,
+            new EmptySystemSearchHistory(), desktop,
+            new LocalizationService(environment.Storage),
+            new FixedVolumeDiscovery(new StorageVolume(root, "Test", false)),
+            new CachedDirectoryBrowserService(), new UnusedDiskManagement(), operations, preferences,
+            new NullBackgroundAutomationService(), new DisabledOcrCapability(), archives: archives);
+        viewModel.ShowPageCommand.Execute("Files");
+        viewModel.LeftPane.SelectedTarget = Target(root);
+        Assert.True(await TestWait.UntilAsync(
+            () => !viewModel.LeftPane.IsLoading, TimeSpan.FromSeconds(3)));
+        viewModel.LeftPane.SetSelection([
+            viewModel.LeftPane.Entries.Single(item => item.Name == "one.txt")
+        ]);
+        viewModel.LeftPane.Activate();
+
+        await viewModel.CreateArchiveCommand.ExecuteAsync(null);
+
+        var archivePath = Path.Combine(root, "bundle.tar");
+        Assert.True(File.Exists(archivePath));
+        Assert.False(File.Exists(archivePath + ".zip"));
+        Assert.Equal("one.txt", Assert.Single(await archives.ListAsync(archivePath)).Name);
+        Assert.Contains("bundle.tar", desktop.ConfirmationMessage, StringComparison.Ordinal);
+        viewModel.CancelActiveWork();
+    }
+
+    [Fact]
     public async Task Startup_RestoresIndependentCommanderWorkspacesAndHotlist()
     {
         await using var environment = await TestEnvironment.CreateAsync();
