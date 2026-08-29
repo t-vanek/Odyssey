@@ -1083,7 +1083,8 @@ public sealed class MainViewModel : ObservableObject
         IDirectorySynchronizationPlanner? synchronizationPlanner = null,
         ISftpConnectionService? sftp = null,
         IArchiveService? archives = null,
-        IArchiveMutationService? archiveMutations = null)
+        IArchiveMutationService? archiveMutations = null,
+        IMultiRenameService? multiRename = null)
     {
         _store = store;
         _scanner = scanner;
@@ -1126,6 +1127,16 @@ public sealed class MainViewModel : ObservableObject
         RightPane.StateChanged += (_, _) => OnPaneStateChanged(RightPane);
         LeftPane.WorkspaceChanged += (_, _) => OnPaneWorkspaceChanged();
         RightPane.WorkspaceChanged += (_, _) => OnPaneWorkspaceChanged();
+        if (multiRename is not null)
+        {
+            multiRename.AccessMode = _fileOperations.AccessMode;
+            MultiRename = new MultiRenameViewModel(multiRename, desktop, localization);
+            MultiRename.Completed += (_, _) =>
+            {
+                TryRefreshPane(LeftPane);
+                TryRefreshPane(RightPane);
+            };
+        }
         _statusMessage = localization["Starting"];
         _scanState = localization["Ready"];
         Targets.CollectionChanged += (_, _) =>
@@ -1182,6 +1193,7 @@ public sealed class MainViewModel : ObservableObject
         CreateFolderCommand = new AsyncRelayCommand(CreateFolderAsync, CanCreateFolder);
         CreateArchiveCommand = new AsyncRelayCommand(CreateArchiveAsync, CanCreateArchive);
         RenameEntryCommand = new AsyncRelayCommand(RenameEntryAsync, CanRenameSelectedEntry);
+        OpenMultiRenameCommand = new RelayCommand(OpenMultiRename, CanOpenMultiRename);
         CopyEntryCommand = new AsyncRelayCommand(CopyEntryAsync, CanCopySelectedEntry);
         MoveEntryCommand = new AsyncRelayCommand(MoveEntryAsync, CanManageSelectedEntry);
         TrashEntryCommand = new AsyncRelayCommand(TrashEntryAsync, CanTrashSelectedEntry);
@@ -1223,6 +1235,7 @@ public sealed class MainViewModel : ObservableObject
     public LocalizationService Localization => _localization;
     public UpdateViewModel? Updater { get; }
     public AgentApprovalViewModel? Approvals { get; }
+    public MultiRenameViewModel? MultiRename { get; }
 
     public ICommand ShowPageCommand { get; }
     public IAsyncRelayCommand RescueSearchCommand { get; }
@@ -1262,6 +1275,7 @@ public sealed class MainViewModel : ObservableObject
     public IAsyncRelayCommand CreateFolderCommand { get; }
     public IAsyncRelayCommand CreateArchiveCommand { get; }
     public IAsyncRelayCommand RenameEntryCommand { get; }
+    public IRelayCommand OpenMultiRenameCommand { get; }
     public IAsyncRelayCommand CopyEntryCommand { get; }
     public IAsyncRelayCommand MoveEntryCommand { get; }
     public IAsyncRelayCommand TrashEntryCommand { get; }
@@ -1373,6 +1387,7 @@ public sealed class MainViewModel : ObservableObject
             _fileOperations.AccessMode = value ? FileAccessMode.ReadOnly : FileAccessMode.ManageFiles;
             if (_archives is not null) _archives.AccessMode = _fileOperations.AccessMode;
             if (_archiveMutations is not null) _archiveMutations.AccessMode = _fileOperations.AccessMode;
+            if (MultiRename is not null) MultiRename.AccessMode = _fileOperations.AccessMode;
             _preferences.ReadOnlyMode = value;
             OnPropertyChanged(nameof(IsFileManagementMode));
             OnPropertyChanged(nameof(AccessModeDisplay));
@@ -2342,6 +2357,15 @@ public sealed class MainViewModel : ObservableObject
             _localization["RenameCompleted"]);
     }
 
+    private void OpenMultiRename()
+    {
+        if (MultiRename is null) return;
+        var sources = ActivePane.SelectedEntries
+            .Where(item => !item.IsParent && item.Endpoint == FileTransferEndpointKind.Local && !item.IsSymbolicLink)
+            .Select(item => item.FullPath).ToArray();
+        if (sources.Length > 0) MultiRename.Open(sources);
+    }
+
     private async Task CopyEntryAsync()
     {
         if (IsFilesPage && ActivePane.SelectedEntries.Any(item => item.Endpoint == FileTransferEndpointKind.Archive))
@@ -3008,6 +3032,12 @@ public sealed class MainViewModel : ObservableObject
                                              && (!IsFilesPage || ActivePane.SelectedEntries.All(item => item.Endpoint == FileTransferEndpointKind.Local))
                                              && GetSelectedEntries() is { Count: 1 }
                                              && GetSelectedEntries()[0] is { Available: true, IsParent: false };
+    private bool CanOpenMultiRename() => MultiRename is not null && !ReadOnlyMode && !IsFileOperationRunning
+                                         && IsFilesPage && !ActivePane.IsArchive
+                                         && ActivePane.SelectedEntries.Any(item => !item.IsParent
+                                             && item.Endpoint == FileTransferEndpointKind.Local && !item.IsSymbolicLink)
+                                         && ActivePane.SelectedEntries.All(item => item.IsParent
+                                             || item.Endpoint == FileTransferEndpointKind.Local && !item.IsSymbolicLink);
     private bool CanCreateFolder() => !ReadOnlyMode && !IsFileOperationRunning
                                       && (!IsFilesPage || !ActivePane.IsArchive)
                                       && (!string.IsNullOrWhiteSpace(CurrentDirectoryPath) || SelectedTarget is not null);
@@ -3242,7 +3272,7 @@ public sealed class MainViewModel : ObservableObject
         CloseTabCommand.NotifyCanExecuteChanged(); ReopenClosedTabCommand.NotifyCanExecuteChanged();
         AddHotlistCommand.NotifyCanExecuteChanged(); RemoveHotlistCommand.NotifyCanExecuteChanged();
         OpenHotlistCommand.NotifyCanExecuteChanged();
-        ToggleAccessModeCommand.NotifyCanExecuteChanged(); CreateFolderCommand.NotifyCanExecuteChanged(); CreateArchiveCommand.NotifyCanExecuteChanged(); RenameEntryCommand.NotifyCanExecuteChanged();
+        ToggleAccessModeCommand.NotifyCanExecuteChanged(); CreateFolderCommand.NotifyCanExecuteChanged(); CreateArchiveCommand.NotifyCanExecuteChanged(); RenameEntryCommand.NotifyCanExecuteChanged(); OpenMultiRenameCommand.NotifyCanExecuteChanged();
         CopyEntryCommand.NotifyCanExecuteChanged(); MoveEntryCommand.NotifyCanExecuteChanged(); TrashEntryCommand.NotifyCanExecuteChanged();
         UndoFileOperationCommand.NotifyCanExecuteChanged(); CancelFileOperationCommand.NotifyCanExecuteChanged();
         UnmountDriveCommand.NotifyCanExecuteChanged(); EjectDriveCommand.NotifyCanExecuteChanged();

@@ -7,7 +7,7 @@
   <Window.KeyBindings>
     <KeyBinding Gesture="F2" Command="{Binding RenameEntryCommand}" />
     <KeyBinding Gesture="F3" Command="{Binding OpenResultCommand}" />
-    <KeyBinding Gesture="F4" Command="{Binding OpenFolderCommand}" />
+    <KeyBinding Gesture="F4" Command="{Binding EditEntryCommand}" />
     <KeyBinding Gesture="F5" Command="{Binding CopyEntryCommand}" />
     <KeyBinding Gesture="F6" Command="{Binding MoveEntryCommand}" />
     <KeyBinding Gesture="F7" Command="{Binding CreateFolderCommand}" />
@@ -233,13 +233,14 @@
     </Border>
 
     <Border Grid.Row="1" Background="#0A0D11" BorderBrush="#20252C" BorderThickness="0,0,0,1" Padding="10,6">
-      <Grid ColumnDefinitions="Auto,Auto,Auto,12,Auto,Auto,*" VerticalAlignment="Center">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*" VerticalAlignment="Center">
         <Button Classes="toolbar" AutomationProperties.Name="{DynamicResource Find}" Command="{Binding ShowPageCommand}" CommandParameter="Search"><StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Classes="actionIcon" Data="{StaticResource IconSearch}" /><TextBlock Text="{DynamicResource Find}" /></StackPanel></Button>
         <Button Grid.Column="1" Classes="toolbar" AutomationProperties.Name="{DynamicResource Scan}" Command="{Binding StartScanCommand}"><StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Classes="actionIcon" Data="{StaticResource IconScan}" /><TextBlock Text="{DynamicResource Scan}" /></StackPanel></Button>
           <Button Grid.Column="2" Classes="toolbar" AutomationProperties.Name="{DynamicResource CompareDirectories}" Command="{Binding CompareDirectoriesCommand}"><StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Classes="actionIcon" Data="{StaticResource IconUndo}" /><TextBlock Text="{DynamicResource CompareDirectories}" /></StackPanel></Button>
           <Button Grid.Column="3" Classes="toolbar" AutomationProperties.Name="{DynamicResource CreateArchive}" Command="{Binding CreateArchiveCommand}"><StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Classes="actionIcon" Data="{StaticResource IconFiles}" /><TextBlock Text="{DynamicResource CreateArchive}" /></StackPanel></Button>
-          <Button Grid.Column="4" Classes="toolbar" AutomationProperties.Name="{DynamicResource Undo}" Command="{Binding UndoFileOperationCommand}"><StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Classes="actionIcon" Data="{StaticResource IconUndo}" /><TextBlock Text="{DynamicResource Undo}" /></StackPanel></Button>
-        <Button Grid.Column="5" Classes="toolbar" AutomationProperties.Name="{Binding AccessModeDisplay}" Command="{Binding ToggleAccessModeCommand}"><StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Classes="actionIcon" Data="{StaticResource IconLock}" /><TextBlock Text="{Binding AccessModeDisplay}" /></StackPanel></Button>
+          <Button Grid.Column="4" Classes="toolbar" AutomationProperties.Name="{DynamicResource MultiRename}" Command="{Binding OpenMultiRenameCommand}"><StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Classes="actionIcon" Data="{StaticResource IconRename}" /><TextBlock Text="{DynamicResource MultiRename}" /></StackPanel></Button>
+          <Button Grid.Column="5" Classes="toolbar" AutomationProperties.Name="{DynamicResource Undo}" Command="{Binding UndoFileOperationCommand}"><StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Classes="actionIcon" Data="{StaticResource IconUndo}" /><TextBlock Text="{DynamicResource Undo}" /></StackPanel></Button>
+        <Button Grid.Column="6" Classes="toolbar" AutomationProperties.Name="{Binding AccessModeDisplay}" Command="{Binding ToggleAccessModeCommand}"><StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Classes="actionIcon" Data="{StaticResource IconLock}" /><TextBlock Text="{Binding AccessModeDisplay}" /></StackPanel></Button>
       </Grid>
     </Border>
 
@@ -514,5 +515,79 @@
       <Button Grid.Column="7" Classes="function" AutomationProperties.Name="{DynamicResource SettingsF9}" Command="{Binding ShowPageCommand}" CommandParameter="Settings"><StackPanel Orientation="Horizontal" Spacing="6"><PathIcon Classes="functionIcon" Data="{StaticResource IconSettings}" /><TextBlock Text="{DynamicResource SettingsF9}" /></StackPanel></Button>
     </Grid>
     </Grid>
+
+    <Border ZIndex="100" Margin="46" Padding="20" CornerRadius="14" Background="#F20D1015"
+            BorderBrush="#49515C" BorderThickness="1" IsVisible="{Binding MultiRename.IsOpen}"
+            x:CompileBindings="False" AutomationProperties.Name="{DynamicResource MultiRenameTitle}">
+      <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="12">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Spacing="3">
+            <TextBlock Text="{DynamicResource MultiRenameTitle}" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="{DynamicResource MultiRenameHelp}" Classes="muted" TextWrapping="Wrap" />
+          </StackPanel>
+          <Button Grid.Column="1" Content="✕" Command="{Binding MultiRename.CloseCommand}"
+                  AutomationProperties.Name="{DynamicResource Cancel}" />
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnDefinitions="*,*,*,*,Auto,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="7" IsEnabled="{Binding MultiRename.CanEdit}">
+          <StackPanel><TextBlock Text="{DynamicResource MultiRenamePrefix}" Classes="muted" /><TextBox Text="{Binding MultiRename.Prefix, UpdateSourceTrigger=PropertyChanged}" /></StackPanel>
+          <StackPanel Grid.Column="1"><TextBlock Text="{DynamicResource MultiRenameSuffix}" Classes="muted" /><TextBox Text="{Binding MultiRename.Suffix, UpdateSourceTrigger=PropertyChanged}" /></StackPanel>
+          <StackPanel Grid.Column="2"><TextBlock Text="{DynamicResource MultiRenameFind}" Classes="muted" /><TextBox Text="{Binding MultiRename.SearchText, UpdateSourceTrigger=PropertyChanged}" /></StackPanel>
+          <StackPanel Grid.Column="3"><TextBlock Text="{DynamicResource MultiRenameReplace}" Classes="muted" /><TextBox Text="{Binding MultiRename.ReplacementText, UpdateSourceTrigger=PropertyChanged}" /></StackPanel>
+          <CheckBox Grid.Column="4" Content="{DynamicResource MultiRenameRegex}" IsChecked="{Binding MultiRename.UseRegex}" VerticalAlignment="Bottom" Margin="0,0,0,8" />
+          <CheckBox Grid.Column="5" Content="{DynamicResource MultiRenameMatchCase}" IsChecked="{Binding MultiRename.MatchCase}" VerticalAlignment="Bottom" Margin="0,0,0,8" />
+
+          <StackPanel Grid.Row="1"><TextBlock Text="{DynamicResource MultiRenameCase}" Classes="muted" /><ComboBox ItemsSource="{Binding MultiRename.CaseModes}" SelectedItem="{Binding MultiRename.CaseMode}"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={x:Static vm:LocalizedEnumConverter.Instance}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox></StackPanel>
+          <StackPanel Grid.Row="1" Grid.Column="1"><TextBlock Text="{DynamicResource MultiRenameSort}" Classes="muted" /><ComboBox ItemsSource="{Binding MultiRename.SortModes}" SelectedItem="{Binding MultiRename.SortMode}"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={x:Static vm:LocalizedEnumConverter.Instance}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox></StackPanel>
+          <StackPanel Grid.Row="1" Grid.Column="2"><TextBlock Text="{DynamicResource MultiRenameFileSystemCase}" Classes="muted" /><ComboBox ItemsSource="{Binding MultiRename.CaseSensitivityModes}" SelectedItem="{Binding MultiRename.CaseSensitivity}"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={x:Static vm:LocalizedEnumConverter.Instance}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox></StackPanel>
+          <StackPanel Grid.Row="1" Grid.Column="3"><TextBlock Text="{DynamicResource MultiRenameDateFormat}" Classes="muted" /><TextBox Text="{Binding MultiRename.DateFormat, UpdateSourceTrigger=PropertyChanged}" /></StackPanel>
+          <CheckBox Grid.Row="1" Grid.Column="4" Content="{DynamicResource MultiRenameDescending}" IsChecked="{Binding MultiRename.SortDescending}" VerticalAlignment="Bottom" Margin="0,0,0,8" />
+          <CheckBox Grid.Row="1" Grid.Column="5" Content="{DynamicResource MultiRenamePreserveExtension}" IsChecked="{Binding MultiRename.PreserveExtension}" VerticalAlignment="Bottom" Margin="0,0,0,8" />
+
+          <CheckBox Grid.Row="2" Content="{DynamicResource MultiRenameCounter}" IsChecked="{Binding MultiRename.IncludeCounter}" VerticalAlignment="Center" />
+          <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="6"><TextBlock Text="{DynamicResource MultiRenameCounterStart}" Classes="muted" VerticalAlignment="Center" /><TextBox Width="62" Text="{Binding MultiRename.CounterStart}" /><TextBlock Text="{DynamicResource MultiRenameCounterStep}" Classes="muted" VerticalAlignment="Center" /><TextBox Width="62" Text="{Binding MultiRename.CounterStep}" /></StackPanel>
+          <StackPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal" Spacing="6"><TextBlock Text="{DynamicResource MultiRenameCounterPadding}" Classes="muted" VerticalAlignment="Center" /><TextBox Width="62" Text="{Binding MultiRename.CounterPadding}" /></StackPanel>
+          <StackPanel Grid.Row="2" Grid.Column="3" Orientation="Horizontal" Spacing="6"><TextBlock Text="{DynamicResource MultiRenameCounterSeparator}" Classes="muted" VerticalAlignment="Center" /><TextBox Width="70" Text="{Binding MultiRename.CounterSeparator, UpdateSourceTrigger=PropertyChanged}" /></StackPanel>
+          <StackPanel Grid.Row="2" Grid.Column="4" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="6"><TextBlock Text="{DynamicResource MultiRenameExtension}" Classes="muted" VerticalAlignment="Center" /><TextBox Width="110" Text="{Binding MultiRename.ExtensionReplacement, UpdateSourceTrigger=PropertyChanged}" /></StackPanel>
+        </Grid>
+
+        <Border Grid.Row="2" Background="#211416" BorderBrush="#613C42" BorderThickness="1" CornerRadius="7" Padding="9,6" IsVisible="{Binding MultiRename.HasErrors}">
+          <TextBlock Text="{Binding MultiRename.ErrorSummary}" Foreground="#F0A0A0" TextWrapping="Wrap" />
+        </Border>
+
+        <Grid Grid.Row="3" RowDefinitions="Auto,*">
+          <Grid ColumnDefinitions="1*,1.25*" Margin="10,0,10,5" ColumnSpacing="12">
+            <TextBlock Text="{DynamicResource MultiRenameOriginal}" Classes="columnHeader" />
+            <TextBlock Grid.Column="1" Text="{DynamicResource MultiRenameResult}" Classes="columnHeader" />
+          </Grid>
+          <ListBox Grid.Row="1" ItemsSource="{Binding MultiRename.Rows}" IsEnabled="{Binding MultiRename.CanEdit}">
+            <ListBox.ItemsPanel>
+              <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
+            </ListBox.ItemsPanel>
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <Grid ColumnDefinitions="1*,1.25*" RowDefinitions="Auto,Auto" ColumnSpacing="12" Margin="6,3">
+                  <TextBlock Text="{Binding OriginalName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                  <TextBox Grid.Column="1" Text="{Binding ProposedName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                  <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Errors}" Foreground="#F0A0A0" FontSize="10" TextWrapping="Wrap" IsVisible="{Binding HasErrors}" />
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </Grid>
+
+        <Grid Grid.Row="4" ColumnDefinitions="*,Auto">
+          <TextBlock Text="{Binding MultiRename.Status}" Classes="muted" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="7">
+            <Button Content="{DynamicResource MultiRenameImport}" Command="{Binding MultiRename.ImportCommand}" />
+            <Button Content="{DynamicResource MultiRenameExport}" Command="{Binding MultiRename.ExportCommand}" />
+            <Button Content="{DynamicResource MultiRenameRefresh}" Command="{Binding MultiRename.RefreshCommand}" />
+            <Button Content="{DynamicResource MultiRenameUndo}" Command="{Binding MultiRename.UndoCommand}" />
+            <Button Content="{DynamicResource MultiRenameCancel}" Command="{Binding MultiRename.CancelCommand}" />
+            <Button Classes="primary" Content="{DynamicResource MultiRenameExecute}" Command="{Binding MultiRename.ExecuteCommand}" />
+          </StackPanel>
+        </Grid>
+      </Grid>
+    </Border>
   </Grid>
 </Window>

@@ -131,6 +131,11 @@ public sealed partial class MainWindow : Window
     private void MainWindowKeyDown(object? sender, KeyEventArgs e)
     {
         if (_viewModel?.IsFilesPage != true || e.Handled) return;
+        if (_viewModel.MultiRename?.IsOpen == true)
+        {
+            if (e.Key == Key.Escape) e.Handled = Execute(_viewModel.MultiRename.CloseCommand);
+            return;
+        }
         var control = e.Source as Control;
         var activeFilter = this.FindControl<TextBox>(ReferenceEquals(_viewModel.ActivePane, _viewModel.LeftPane)
             ? "LeftQuickFilterBox"
@@ -156,9 +161,10 @@ public sealed partial class MainWindow : Window
             return;
         }
         var tabShortcut = controlKey && (e.Key is Key.T or Key.W or Key.D);
+        var multiRenameShortcut = controlKey && shiftKey && e.Key == Key.M;
         if (control is TextBox
             && e.Key is not (Key.F2 or Key.F3 or Key.F4 or Key.F5 or Key.F6 or Key.F7 or Key.F8)
-            && !tabShortcut)
+            && !tabShortcut && !multiRenameShortcut)
             return;
 
         System.Windows.Input.ICommand? command = e.Key switch
@@ -173,6 +179,7 @@ public sealed partial class MainWindow : Window
             Key.A when controlKey => _viewModel.SelectAllCommand,
             Key.I when controlKey => _viewModel.InvertSelectionCommand,
             Key.E when controlKey => _viewModel.SelectByExtensionCommand,
+            Key.M when controlKey && shiftKey => _viewModel.OpenMultiRenameCommand,
             Key.M when controlKey => _viewModel.SelectByMaskCommand,
             Key.R when controlKey && shiftKey => _viewModel.RestorePreviousSelectionCommand,
             Key.T when controlKey && shiftKey => _viewModel.ReopenClosedTabCommand,

@@ -49,7 +49,13 @@ Status meanings:
   - ZIP/TAR recovery manifests share the strict canonical-path and link checks but validate artifacts with the destination format. TAR advertises Create only; Add/Replace/Delete remain capability-rejected and the original is preserved on cancellation or validation failure.
   - Automated fixtures cover deterministic output, nested files and empty directories, managed browse/extract, traversal/absolute names, special entries, case collisions, corruption, cancellation, read-only/source-link enforcement, capability enforcement, TAR recovery and the `.tar` UI selection.
   - Stage verification: targeted archive/Commander suite 45/45 in three consecutive runs; full suite 146/146; stability scenarios 5/5 in three consecutive runs; Debug and Release builds 0 warnings/errors; NuGet audit found no vulnerable direct or transitive package; `git diff --check` passed. Hosted Linux and Windows CI run `33262512560` completed successfully, including the native-engine Linux path.
-- Next production stage: Multi-Rename immutable preview and validation model, followed by its two-phase executor and whole-batch Undo. Writable 7z remains gated on a supported writer and rollback coverage; do not advertise it early.
+- Stage R1 — transactional Multi-Rename foundation and tool: **Done**.
+  - `Ctrl+Shift+M` and the toolbar open a production preview tool for the complete local, non-link selection of the active panel only. Prefix/suffix, literal or timeout-bounded regex replacement, case conversion, created/modified date and counter tokens, counter start/step/padding, extension preservation/replacement, pre-numbering sort, descending order and manual per-row result edits update the preview without mutating the filesystem.
+  - Plans are immutable, schema-versioned, SHA-256 integrity-bound and exportable/importable as JSON. Import and execution both rebuild the plan from current filesystem snapshots. Invalid/reserved names, duplicate outputs, occupied destinations and explicit case-sensitive/case-insensitive collisions prevent confirmation.
+  - Execution revalidates the approved plan and renames through unique sibling staging names in two phases, so swaps and case-only changes work without overwriting. Cancellation or a caught failure rolls every staged/published item back; the most recent successful batch has whole-batch Undo that refuses changed or occupied paths. Read-only mode blocks execution and Undo.
+  - The preview list is virtualized, progress and validation are visible, all new UI text has Czech and English resources, and active/passive selection routing has an integration test. Core tests cover transforms, cycles, case-only rename, collisions, hostile imported hashes, rollback, cancellation, read-only enforcement, changed-source revalidation and safe Undo refusal.
+  - Stage verification: targeted Multi-Rename suite 10/10; full suite 156/156; stability scenarios 5/5 in three consecutive runs; Debug and Release builds 0 warnings/errors; NuGet audit found no vulnerable direct or transitive package; `git diff --check` passed.
+- Next production stage: bounded Quick View and preview source abstraction for local, archive and SFTP streams. Multi-Rename metadata enrichment (EXIF and document/audio metadata), durable crash-recovery journal and restart-persistent Undo remain follow-up work. Writable 7z remains gated on a supported writer and rollback coverage; do not advertise it early.
 
 ## 1. Keyboard-first Commander UX
 
@@ -95,7 +101,9 @@ Remaining archive safety gates include mutation Undo (or an explicit user recove
 
 ## 3. Multi-Rename
 
-Overall: **Not started**. Single-item safe rename and undo exist. There is no preview model/tool UI, transforms, metadata tokens, manual result editing, sorting/counters, plan import/export, filesystem/case collision analysis, two-phase batch executor, or whole-batch undo. A future stage must separate immutable preview from execution and test cycles (`a→b`, `b→a`), case-only renames, reserved names, injected plan changes, rollback, and read-only enforcement.
+Overall: **Partial**. The active-panel production tool provides immutable live preview, prefix/suffix, literal/regex replacement, case conversion, counters, creation/modification dates, extension rules, manual names, input sorting, case-aware collision validation, integrity-bound JSON import/export, a two-phase executor and whole-batch in-memory Undo. It handles cycles (`a→b`, `b→a`) and case-only changes without overwriting and rolls back caught failure or cancellation.
+
+Remaining: EXIF date and available document/audio metadata tokens; per-volume case-capability probing beyond explicit user override and the current platform default; a durable transaction journal for process/OS crash reconciliation; restart-persistent Undo; localized presentation of service validation diagnostics; and integration of the completed batch into Odyssey's explicit move/rename audit rather than relying on filesystem monitoring and later index verification. Creation time is exposed only where the platform/filesystem reports it truthfully.
 
 ## 4. Quick View, editing, and content comparison
 

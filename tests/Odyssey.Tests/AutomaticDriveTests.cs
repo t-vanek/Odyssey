@@ -116,6 +116,59 @@ public sealed class AutomaticDriveTests
     }
 
     [Fact]
+    public async Task MultiRename_UsesOnlyActivePaneSelectionAndHonorsReadOnlyMode()
+    {
+        await using var environment = await TestEnvironment.CreateAsync();
+        var leftRoot = Path.Combine(environment.Root, "left-rename");
+        var rightRoot = Path.Combine(environment.Root, "right-rename");
+        Directory.CreateDirectory(leftRoot);
+        Directory.CreateDirectory(rightRoot);
+        await File.WriteAllTextAsync(Path.Combine(leftRoot, "left.txt"), "left");
+        await File.WriteAllTextAsync(Path.Combine(rightRoot, "right-one.txt"), "right one");
+        await File.WriteAllTextAsync(Path.Combine(rightRoot, "right-two.txt"), "right two");
+        var preferences = new UserPreferencesService(environment.Storage) { ReadOnlyMode = false };
+        var coordinator = new ScanCoordinator(
+            new PortableFileSystemScanner(new ConfigurableExclusionPolicy()),
+            new ExtensionFileClassifier(), environment.Store,
+            new ScanPipelineOptions(2, 16, 4), NullLogger<ScanCoordinator>.Instance);
+        var rename = new MultiRenameService();
+        var viewModel = new MainViewModel(
+            environment.Store, coordinator, environment.Search,
+            new EmptySystemSearchHistory(), new UnusedDesktopInteraction(),
+            new LocalizationService(environment.Storage),
+            new FixedVolumeDiscovery(new StorageVolume(leftRoot, "Test", false)),
+            new CachedDirectoryBrowserService(), new UnusedDiskManagement(),
+            new SafeFileOperationService(environment.Storage), preferences,
+            new NullBackgroundAutomationService(), new DisabledOcrCapability(), multiRename: rename);
+        viewModel.ShowPageCommand.Execute("Files");
+        viewModel.LeftPane.SelectedTarget = Target(leftRoot);
+        viewModel.RightPane.SelectedTarget = Target(rightRoot);
+        Assert.True(await TestWait.UntilAsync(
+            () => !viewModel.LeftPane.IsLoading && !viewModel.RightPane.IsLoading,
+            TimeSpan.FromSeconds(3)));
+        viewModel.LeftPane.SetSelection([viewModel.LeftPane.Entries.Single()]);
+        viewModel.RightPane.SetSelection(viewModel.RightPane.Entries);
+        viewModel.RightPane.Activate();
+
+        viewModel.OpenMultiRenameCommand.Execute(null);
+
+        var tool = Assert.IsType<MultiRenameViewModel>(viewModel.MultiRename);
+        Assert.Equal(2, tool.Rows.Count);
+        Assert.All(tool.Rows, row => Assert.StartsWith(Path.GetFullPath(rightRoot), row.SourcePath));
+        Assert.DoesNotContain(tool.Rows, row => row.SourcePath.Contains("left.txt", StringComparison.Ordinal));
+        tool.Prefix = "renamed-";
+        Assert.True(tool.CanExecute);
+
+        await viewModel.ToggleAccessModeCommand.ExecuteAsync(null);
+
+        Assert.True(viewModel.ReadOnlyMode);
+        Assert.Equal(FileAccessMode.ReadOnly, rename.AccessMode);
+        Assert.False(tool.CanExecute);
+        Assert.False(viewModel.OpenMultiRenameCommand.CanExecute(null));
+        viewModel.CancelActiveWork();
+    }
+
+    [Fact]
     public async Task CommanderCopy_RoutesOnlyActiveLocalSelectionIntoPassiveZipTab()
     {
         await using var environment = await TestEnvironment.CreateAsync();

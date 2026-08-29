@@ -11,6 +11,8 @@ public interface IDesktopInteractionService
     Task<string?> PickFolderAsync();
     Task<string?> PickDestinationFolderAsync();
     Task<string?> PromptTextAsync(string title, string message, string initialValue = "");
+    Task<string?> PromptMultilineAsync(string title, string message, string initialValue = "") =>
+        PromptTextAsync(title, message, initialValue);
     Task<bool> ConfirmAsync(string title, string message, string confirmText);
     Task CopyTextAsync(string text);
     Task OpenAsync(string path);
@@ -90,6 +92,42 @@ public sealed class DesktopInteractionService(LocalizationService localization) 
         cancel.Click += (_, _) => dialog.Close();
         await dialog.ShowDialog(RequireWindow());
         return result;
+    }
+
+    public async Task<string?> PromptMultilineAsync(string title, string message, string initialValue = "")
+    {
+        string? result = null;
+        var input = new TextBox
+        {
+            Text = initialValue,
+            MinWidth = 640,
+            MinHeight = 280,
+            AcceptsReturn = true,
+            TextWrapping = Avalonia.Media.TextWrapping.NoWrap,
+            FontFamily = "monospace"
+        };
+        ScrollViewer.SetVerticalScrollBarVisibility(input, Avalonia.Controls.Primitives.ScrollBarVisibility.Auto);
+        ScrollViewer.SetHorizontalScrollBarVisibility(input, Avalonia.Controls.Primitives.ScrollBarVisibility.Auto);
+        var ok = new Button { Content = localization["Confirm"], IsDefault = true, MinWidth = 90 };
+        var cancel = new Button { Content = localization["Cancel"], IsCancel = true, MinWidth = 90 };
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 6,
+            Children = { cancel, ok }
+        };
+        var content = new StackPanel
+        {
+            Margin = new Avalonia.Thickness(16), Spacing = 10,
+            Children = { new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap }, input, buttons }
+        };
+        var dialog = CreateDialog(title, content);
+        dialog.Width = 720;
+        ok.Click += (_, _) => { result = input.Text; dialog.Close(); };
+        cancel.Click += (_, _) => dialog.Close();
+        await dialog.ShowDialog(RequireWindow());
+        return string.IsNullOrWhiteSpace(result) ? null : result;
     }
 
     public async Task CopyTextAsync(string text)

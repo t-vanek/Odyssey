@@ -17,6 +17,7 @@ Commander shortcuts work on the active file panel only. The highlighted panel is
 | `Ctrl+I` | Invert the visible selection |
 | `Ctrl+E` | Select visible items with the focused item's extension |
 | `Ctrl+M` | Select by a mask using the panel's current contains/glob/regex mode |
+| `Ctrl+Shift+M` | Open Multi-Rename for the active panel selection |
 | `Ctrl+Shift+R` | Restore the previous visible selection |
 | `Ctrl+T` | Open a new tab in the active panel |
 | `Ctrl+Shift+D` | Duplicate the active tab, including its history and filter |
