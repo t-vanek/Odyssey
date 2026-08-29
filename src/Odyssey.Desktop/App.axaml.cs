@@ -55,6 +55,7 @@ public sealed class App : Application
             services.AddSingleton<IDiskManagementService, PortableDiskManagementService>();
             services.AddSingleton<IFileOperationService, SafeFileOperationService>();
             services.AddSingleton<IMultiRenameService, MultiRenameService>();
+            services.AddSingleton<IQuickViewService, QuickViewService>();
             services.AddSingleton(provider => new SafeArchiveService(
                 storage: provider.GetRequiredService<ApplicationStorage>()));
             services.AddSingleton<IArchiveService>(provider => provider.GetRequiredService<SafeArchiveService>());

@@ -4,18 +4,6 @@
         x:Class="Odyssey.Desktop.MainWindow" x:DataType="vm:MainViewModel"
         Title="{DynamicResource WindowTitle}" Icon="/Assets/odyssey-icon.png"
         Width="1540" Height="940" MinWidth="1120" MinHeight="740">
-  <Window.KeyBindings>
-    <KeyBinding Gesture="F2" Command="{Binding RenameEntryCommand}" />
-    <KeyBinding Gesture="F3" Command="{Binding OpenResultCommand}" />
-    <KeyBinding Gesture="F4" Command="{Binding EditEntryCommand}" />
-    <KeyBinding Gesture="F5" Command="{Binding CopyEntryCommand}" />
-    <KeyBinding Gesture="F6" Command="{Binding MoveEntryCommand}" />
-    <KeyBinding Gesture="F7" Command="{Binding CreateFolderCommand}" />
-    <KeyBinding Gesture="F8" Command="{Binding TrashEntryCommand}" />
-    <KeyBinding Gesture="F9" Command="{Binding ShowPageCommand}" CommandParameter="Settings" />
-    <KeyBinding Gesture="Ctrl+F" Command="{Binding ShowPageCommand}" CommandParameter="Search" />
-  </Window.KeyBindings>
-
   <Grid Background="#090B0E">
     <Grid IsVisible="{Binding IsRescuePage}" RowDefinitions="78,*">
       <Border Background="#0E1014" BorderBrush="#20242A" BorderThickness="0,0,0,1" Padding="34,0">
@@ -506,7 +494,7 @@
 
     <Grid Grid.Row="5" ColumnDefinitions="*,*,*,*,*,*,*,*" Background="#090B0E">
       <Button Classes="function" AutomationProperties.Name="{DynamicResource RenameF2}" Command="{Binding RenameEntryCommand}"><StackPanel Orientation="Horizontal" Spacing="6"><PathIcon Classes="functionIcon" Data="{StaticResource IconRename}" /><TextBlock Text="{DynamicResource RenameF2}" /></StackPanel></Button>
-      <Button Grid.Column="1" Classes="function" AutomationProperties.Name="{DynamicResource OpenF3Short}" Command="{Binding OpenResultCommand}"><StackPanel Orientation="Horizontal" Spacing="6"><PathIcon Classes="functionIcon" Data="{StaticResource IconOpen}" /><TextBlock Text="{DynamicResource OpenF3Short}" /></StackPanel></Button>
+      <Button Grid.Column="1" Classes="function" AutomationProperties.Name="{DynamicResource QuickViewF3}" Command="{Binding OpenQuickViewCommand}"><StackPanel Orientation="Horizontal" Spacing="6"><PathIcon Classes="functionIcon" Data="{StaticResource IconOpen}" /><TextBlock Text="{DynamicResource QuickViewF3}" /></StackPanel></Button>
       <Button Grid.Column="2" Classes="function" AutomationProperties.Name="{DynamicResource OpenFolderF4}" Command="{Binding EditEntryCommand}"><StackPanel Orientation="Horizontal" Spacing="6"><PathIcon Classes="functionIcon" Data="{StaticResource IconFiles}" /><TextBlock Text="{DynamicResource OpenFolderF4}" /></StackPanel></Button>
       <Button Grid.Column="3" Classes="function" AutomationProperties.Name="{DynamicResource CopyF5}" Command="{Binding CopyEntryCommand}"><StackPanel Orientation="Horizontal" Spacing="6"><PathIcon Classes="functionIcon" Data="{StaticResource IconCopy}" /><TextBlock Text="{DynamicResource CopyF5}" /></StackPanel></Button>
       <Button Grid.Column="4" Classes="function" AutomationProperties.Name="{DynamicResource MoveF6}" Command="{Binding MoveEntryCommand}"><StackPanel Orientation="Horizontal" Spacing="6"><PathIcon Classes="functionIcon" Data="{StaticResource IconMove}" /><TextBlock Text="{DynamicResource MoveF6}" /></StackPanel></Button>
@@ -585,6 +573,66 @@
             <Button Content="{DynamicResource MultiRenameUndo}" Command="{Binding MultiRename.UndoCommand}" />
             <Button Content="{DynamicResource MultiRenameCancel}" Command="{Binding MultiRename.CancelCommand}" />
             <Button Classes="primary" Content="{DynamicResource MultiRenameExecute}" Command="{Binding MultiRename.ExecuteCommand}" />
+          </StackPanel>
+        </Grid>
+      </Grid>
+    </Border>
+
+    <Border ZIndex="110" Margin="34" Padding="18" CornerRadius="14" Background="#FA0B0E12"
+            BorderBrush="#526071" BorderThickness="1" IsVisible="{Binding QuickView.IsOpen}"
+            x:CompileBindings="False" AutomationProperties.Name="{DynamicResource QuickViewTitle}">
+      <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="10">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Spacing="2">
+            <TextBlock Text="{Binding QuickView.SourceName}" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="{Binding QuickView.SourcePath}" Classes="muted" TextTrimming="CharacterEllipsis" />
+            <TextBlock Text="{DynamicResource QuickViewHelp}" Classes="muted" TextWrapping="Wrap" />
+          </StackPanel>
+          <Button Grid.Column="1" Content="✕" Command="{Binding QuickView.CloseCommand}"
+                  AutomationProperties.Name="{DynamicResource Cancel}" />
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnDefinitions="Auto,170,Auto,170,Auto,130,*,Auto" ColumnSpacing="8"
+              IsEnabled="{Binding QuickView.CanChangeOptions}">
+          <TextBlock Text="{DynamicResource QuickViewMode}" Classes="muted" VerticalAlignment="Center" />
+          <ComboBox Grid.Column="1" ItemsSource="{Binding QuickView.Modes}" SelectedItem="{Binding QuickView.Mode}">
+            <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={x:Static vm:LocalizedEnumConverter.Instance}}" /></DataTemplate></ComboBox.ItemTemplate>
+          </ComboBox>
+          <TextBlock Grid.Column="2" Text="{DynamicResource QuickViewEncoding}" Classes="muted" VerticalAlignment="Center" />
+          <ComboBox Grid.Column="3" ItemsSource="{Binding QuickView.Encodings}" SelectedItem="{Binding QuickView.SelectedEncoding}" />
+          <TextBlock Grid.Column="4" Text="{DynamicResource QuickViewChunkSize}" Classes="muted" VerticalAlignment="Center" />
+          <ComboBox Grid.Column="5" ItemsSource="{Binding QuickView.ChunkSizes}" SelectedItem="{Binding QuickView.SelectedChunkSize}">
+            <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Display}" /></DataTemplate></ComboBox.ItemTemplate>
+          </ComboBox>
+          <TextBlock Grid.Column="6" Text="{DynamicResource QuickViewEffective}" Classes="muted"
+                     HorizontalAlignment="Right" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="7" Text="{Binding QuickView.EffectiveMode}" Classes="muted" VerticalAlignment="Center" />
+        </Grid>
+
+        <Border Grid.Row="2" Background="#211416" BorderBrush="#613C42" BorderThickness="1" CornerRadius="7"
+                Padding="9,6" IsVisible="{Binding QuickView.HasError}">
+          <TextBlock Text="{Binding QuickView.Error}" Foreground="#F0A0A0" TextWrapping="Wrap" />
+        </Border>
+
+        <TextBox Grid.Row="3" Text="{Binding QuickView.Content}" IsReadOnly="True" AcceptsReturn="True"
+                 TextWrapping="NoWrap" FontFamily="monospace" FontSize="12" Padding="10"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                 AutomationProperties.Name="{DynamicResource QuickView}" />
+
+        <Grid Grid.Row="4" ColumnDefinitions="*,Auto" ColumnSpacing="10">
+          <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <TextBlock Text="{Binding QuickView.OffsetSummary}" Classes="muted" />
+            <TextBlock Text="{Binding QuickView.EffectiveEncoding}" Foreground="#7DA7D9" />
+            <TextBlock Text="{Binding QuickView.Status}" Classes="muted" />
+          </StackPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="7">
+            <Button Content="{DynamicResource QuickViewFirst}" Command="{Binding QuickView.FirstCommand}" />
+            <Button Content="{DynamicResource QuickViewPrevious}" Command="{Binding QuickView.PreviousCommand}" />
+            <Button Content="{DynamicResource QuickViewNext}" Command="{Binding QuickView.NextCommand}" />
+            <Button Content="{DynamicResource QuickViewLast}" Command="{Binding QuickView.LastCommand}" />
+            <Button Content="{DynamicResource QuickViewReload}" Command="{Binding QuickView.ReloadCommand}" />
+            <Button Content="{DynamicResource QuickViewCancel}" Command="{Binding QuickView.CancelCommand}" />
           </StackPanel>
         </Grid>
       </Grid>

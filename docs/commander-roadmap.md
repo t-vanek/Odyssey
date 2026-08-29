@@ -55,7 +55,13 @@ Status meanings:
   - Execution revalidates the approved plan and renames through unique sibling staging names in two phases, so swaps and case-only changes work without overwriting. Cancellation or a caught failure rolls every staged/published item back; the most recent successful batch has whole-batch Undo that refuses changed or occupied paths. Read-only mode blocks execution and Undo.
   - The preview list is virtualized, progress and validation are visible, all new UI text has Czech and English resources, and active/passive selection routing has an integration test. Core tests cover transforms, cycles, case-only rename, collisions, hostile imported hashes, rollback, cancellation, read-only enforcement, changed-source revalidation and safe Undo refusal.
   - Stage verification: targeted Multi-Rename suite 10/10; full suite 156/156; stability scenarios 5/5 in three consecutive runs; Debug and Release builds 0 warnings/errors; NuGet audit found no vulnerable direct or transitive package; `git diff --check` passed.
-- Next production stage: bounded Quick View and preview source abstraction for local, archive and SFTP streams. Multi-Rename metadata enrichment (EXIF and document/audio metadata), durable crash-recovery journal and restart-persistent Undo remain follow-up work. Writable 7z remains gated on a supported writer and rollback coverage; do not advertise it early.
+- Stage Q1 — bounded local text/hex Quick View: **Done**.
+  - F3 is now distinct from Open and resolves exactly one regular, non-link local file from the active panel. Directory/archive navigation and OS-associated Open remain on double-click and the application context menu.
+  - The viewer reads a configurable 16–256 KiB block through pooled buffers, supports Auto/Text/Hex display, BOM and heuristic UTF-8/UTF-16 detection, explicit UTF-8/UTF-16/Latin-1/ASCII selection, exact hex offsets, previous/next/first/last navigation and cancellation. It never reads the complete large file merely to display one block.
+  - Every read uses a canonical regular-file path, rejects leaf and ancestor links/reparse points, binds subsequent blocks to the initial length/modification snapshot and revalidates after I/O. While the modal viewer is open, its key router captures Escape/Page Up/Page Down/Ctrl+Home/Ctrl+End and prevents F2–F8 operations from reaching the hidden panel.
+  - Automated coverage includes a 10 MiB bounded-read fixture, text encodings, arbitrary binary hex output, source changes, cancellation, link boundaries, invalid bounds/encoding and active/passive panel routing. New UI resources have Czech/English parity.
+  - Stage verification: targeted Quick View suite 10/10 in three consecutive runs; full suite 166/166; stability scenarios 5/5 in three consecutive runs; Debug and Release builds 0 warnings/errors; NuGet audit found no vulnerable direct or transitive package; `git diff --check` passed. Hosted CI is run after the stage commit is pushed and is reported in the stage handoff.
+- Next production stage: bounded archive-entry preview streams, followed by SFTP preview and limited cache lifecycle. Syntax highlighting and image/EXIF/PDF/media/document presentation remain separate acceptance work. Multi-Rename metadata enrichment, durable crash recovery and restart-persistent Undo also remain open. Writable 7z remains gated on a supported writer and rollback coverage.
 
 ## 1. Keyboard-first Commander UX
 
@@ -69,7 +75,7 @@ Status meanings:
 | Glob/regex filters and selection masks | Done | Shared timeout-bounded matcher; semicolon glob alternatives; context menu and mask prompt. |
 | Select all/invert/by extension/restore previous | Done | Active-pane commands and visual ListBox synchronization. |
 | Range selection/stable multiselect | Partial | Avalonia range/multiselect is enabled and selection survives valid filter refresh for loaded matches; cross-tab persistence and explicit keyboard range acceptance tests remain. |
-| F3–F8 workflow | Partial | Keys are wired: F3 opens, F4 edits via OS association, F5/F6 use transfer flow, F7 creates, F8 trashes. Quick View is not yet implemented, so F3 is open rather than Quick View. |
+| F3–F8 workflow | Partial | F3 opens bounded local text/hex Quick View; F4 edits via OS association; F5/F6 use transfer flow; F7 creates; F8 trashes. Archive/SFTP and rich-format preview remain incomplete. |
 | Configurable shortcuts/conflict detection | Not started | Current shortcuts are fixed. |
 | Configurable button bar | Not started | Existing bar is fixed. |
 | Safe panel command line | Not started | No command line exists. |
@@ -95,7 +101,7 @@ Overall: **Partial**. Browsing/extraction plus crash-recoverable transactional Z
 | Add/replace/delete entries | Partial | ZIP supports Fail/Skip/KeepBoth/Replace and transactional tree deletion. Other formats are read-only. |
 | Local→archive and archive→archive | Partial | Local→ZIP and controlled archive→ZIP relay use the durable queue. Non-ZIP destinations are capability-rejected. |
 | Transactional archive rewrite/original preservation | Partial | ZIP mutations and TAR creation write and validate a sibling, journal publication, restore caught failures and reconcile format-validated crash states at startup. Injected post-backup rollback and ZIP/TAR recovery pass. Mutation Undo and extraction-staging recovery remain missing. |
-| Archive-entry Quick View/bounded cache | Not started | F3 reports the limitation; users can extract with F5. |
+| Archive-entry Quick View/bounded cache | Not started | Local Quick View now provides the bounded model/UI, but archive entries still report the limitation and can be extracted with F5. |
 
 Remaining archive safety gates include mutation Undo (or an explicit user recovery workflow), extraction-stage crash cleanup, writable 7z coverage, and proof that metadata not understood by each future writer is not silently weakened. Managed ZIP rewrites deliberately reject links and use store mode to remain within Odyssey's own compression-ratio policy. TAR is creation-only, so Odyssey never rewrites or silently weakens metadata from an existing TAR.
 
@@ -110,7 +116,7 @@ Remaining: EXIF date and available document/audio metadata tokens; per-volume ca
 | Capability | Status | Evidence / remaining work |
 |---|---|---|
 | F4 local edit | Partial | OS edit association is invoked safely for one local file; built-in editor and explicit save/publish flow are missing. |
-| Chunked text, encoding, syntax, hex, image/EXIF, PDF, media/document preview | Not started | Index extractors are bounded but are not a Quick View UI. |
+| Chunked text, encoding, syntax, hex, image/EXIF, PDF, media/document preview | Partial | Local regular files have bounded text blocks, encoding auto-detection/selection and hex view. Syntax highlighting, images/EXIF, PDF, media and document presentation are missing. |
 | Archive/SFTP preview and bounded temp cache | Not started | No preview materialization/cache lifecycle. |
 | Text side-by-side/inline diff and options | Not started | Directory comparison does not compare/display text hunks. |
 | Binary/hex diff | Not started | No implementation. |

@@ -5,7 +5,7 @@ Commander shortcuts work on the active file panel only. The highlighted panel is
 | Shortcut | Action |
 |---|---|
 | `F2` | Rename the single selected item |
-| `F3` | Open a directory or supported archive in the panel; open an ordinary file with its OS association (Quick View is planned) |
+| `F3` | Open bounded Quick View for the selected local file in the active panel |
 | `F4` | Edit the selected local file using the operating-system association |
 | `F5` | Copy active-panel selection to the other panel, including local↔ZIP and controlled archive→archive transfer |
 | `F6` | Move active-panel selection to the other panel after confirmation |
@@ -27,6 +27,8 @@ Commander shortcuts work on the active file panel only. The highlighted panel is
 Glob filters support `*`, `?`, and semicolon-separated alternatives such as `*.cs;*.md`. Regex matching is timeout-bounded. An invalid pattern is shown as an error and does not replace the last valid result view. Match-case is configured independently in each panel.
 
 F4 behavior depends on a configured OS file association. On Windows Odyssey asks for the `edit` verb and falls back to the default association if that verb is unavailable. Odyssey passes the selected path as a process argument; it does not construct a shell command string.
+
+Inside Quick View, `Page Up` and `Page Down` load the previous or next bounded byte block. `Ctrl+Home` and `Ctrl+End` jump to the first or last block, and `Escape` closes the viewer. These keys are captured by the viewer, so file mutation shortcuts cannot run against a panel hidden behind it. Opening a directory or supported archive still uses double-click or the application context menu's **Open** action.
 
 Each tab has its own target, path, back/forward history, filter mode and filter text. Left and right tab sets are saved independently. A path that is unavailable at startup remains visible as an unavailable tab and is not silently redirected. Persisted paths are revalidated against their indexed target before browsing.
 

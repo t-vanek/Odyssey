@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Odyssey.Core;
@@ -38,7 +39,7 @@ public sealed partial class MainWindow : Window
             tipPanel.PointerExited += (_, _) => { _tipPointerOver = false; UpdateTipTimer(); };
         }
         Opened += MainWindowOpened;
-        KeyDown += MainWindowKeyDown;
+        AddHandler(KeyDownEvent, MainWindowKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         Closed += (_, _) => { _windowOpen = false; _rescueTipTimer.Stop(); };
     }
 
@@ -130,10 +131,35 @@ public sealed partial class MainWindow : Window
 
     private void MainWindowKeyDown(object? sender, KeyEventArgs e)
     {
-        if (_viewModel?.IsFilesPage != true || e.Handled) return;
+        if (_viewModel is null || e.Handled) return;
         if (_viewModel.MultiRename?.IsOpen == true)
         {
             if (e.Key == Key.Escape) e.Handled = Execute(_viewModel.MultiRename.CloseCommand);
+            return;
+        }
+        if (_viewModel.QuickView?.IsOpen == true)
+        {
+            var modalCommand = e.Key switch
+            {
+                Key.Escape => _viewModel.QuickView.CloseCommand,
+                Key.PageUp => _viewModel.QuickView.PreviousCommand,
+                Key.PageDown => _viewModel.QuickView.NextCommand,
+                Key.Home when e.KeyModifiers.HasFlag(KeyModifiers.Control) => _viewModel.QuickView.FirstCommand,
+                Key.End when e.KeyModifiers.HasFlag(KeyModifiers.Control) => _viewModel.QuickView.LastCommand,
+                _ => null
+            };
+            if (modalCommand is not null) e.Handled = Execute(modalCommand);
+            return;
+        }
+        if (e.Key == Key.F9)
+        {
+            e.Handled = Execute(_viewModel.ShowPageCommand, "Settings");
+            return;
+        }
+        if (!_viewModel.IsFilesPage)
+        {
+            if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+                e.Handled = Execute(_viewModel.ShowPageCommand, "Search");
             return;
         }
         var control = e.Source as Control;
@@ -170,7 +196,7 @@ public sealed partial class MainWindow : Window
         System.Windows.Input.ICommand? command = e.Key switch
         {
             Key.F2 => _viewModel.RenameEntryCommand,
-            Key.F3 => _viewModel.OpenResultCommand,
+            Key.F3 => _viewModel.OpenQuickViewCommand,
             Key.F4 => _viewModel.EditEntryCommand,
             Key.F5 => _viewModel.CopyEntryCommand,
             Key.F6 => _viewModel.MoveEntryCommand,

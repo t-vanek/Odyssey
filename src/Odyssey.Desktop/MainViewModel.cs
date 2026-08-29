@@ -1084,7 +1084,8 @@ public sealed class MainViewModel : ObservableObject
         ISftpConnectionService? sftp = null,
         IArchiveService? archives = null,
         IArchiveMutationService? archiveMutations = null,
-        IMultiRenameService? multiRename = null)
+        IMultiRenameService? multiRename = null,
+        IQuickViewService? quickView = null)
     {
         _store = store;
         _scanner = scanner;
@@ -1137,6 +1138,7 @@ public sealed class MainViewModel : ObservableObject
                 TryRefreshPane(RightPane);
             };
         }
+        if (quickView is not null) QuickView = new QuickViewViewModel(quickView, localization);
         _statusMessage = localization["Starting"];
         _scanState = localization["Ready"];
         Targets.CollectionChanged += (_, _) =>
@@ -1161,6 +1163,7 @@ public sealed class MainViewModel : ObservableObject
         SearchNowCommand = new AsyncRelayCommand(SearchFromUiAsync);
         CopyPathCommand = new AsyncRelayCommand(CopyPathAsync, HasSelectedEntry);
         OpenResultCommand = new AsyncRelayCommand(OpenResultAsync, HasAvailableSelectedEntry);
+        OpenQuickViewCommand = new AsyncRelayCommand(OpenQuickViewAsync, CanOpenQuickView);
         EditEntryCommand = new AsyncRelayCommand(EditEntryAsync, CanEditSelectedEntry);
         OpenFolderCommand = new AsyncRelayCommand(OpenFolderAsync, HasSelectedEntry);
         NavigateUpCommand = new RelayCommand(NavigateUp, () => IsFilesPage && !string.IsNullOrWhiteSpace(CurrentDirectoryPath));
@@ -1236,6 +1239,7 @@ public sealed class MainViewModel : ObservableObject
     public UpdateViewModel? Updater { get; }
     public AgentApprovalViewModel? Approvals { get; }
     public MultiRenameViewModel? MultiRename { get; }
+    public QuickViewViewModel? QuickView { get; }
 
     public ICommand ShowPageCommand { get; }
     public IAsyncRelayCommand RescueSearchCommand { get; }
@@ -1247,6 +1251,7 @@ public sealed class MainViewModel : ObservableObject
     public IAsyncRelayCommand SearchNowCommand { get; }
     public IAsyncRelayCommand CopyPathCommand { get; }
     public IAsyncRelayCommand OpenResultCommand { get; }
+    public IAsyncRelayCommand OpenQuickViewCommand { get; }
     public IAsyncRelayCommand EditEntryCommand { get; }
     public IAsyncRelayCommand OpenFolderCommand { get; }
     public IRelayCommand NavigateUpCommand { get; }
@@ -1617,6 +1622,7 @@ public sealed class MainViewModel : ObservableObject
         _fileOperationCancellation?.Cancel();
         _comparisonCancellation?.Cancel();
         _preferenceSaveCancellation?.Cancel();
+        QuickView?.Close();
         SaveCommanderWorkspace();
         _ = _automation.StopAsync();
     }
@@ -2235,6 +2241,12 @@ public sealed class MainViewModel : ObservableObject
             return Task.CompletedTask;
         }
         return RunDesktopAction(() => _desktop.OpenAsync(entry.Path), _localization["Opened"]);
+    }
+
+    private async Task OpenQuickViewAsync()
+    {
+        if (QuickView is null || ActivePane.SelectedEntry is not { } entry) return;
+        await QuickView.OpenAsync(entry.FullPath);
     }
 
     private Task EditEntryAsync()
@@ -3038,6 +3050,14 @@ public sealed class MainViewModel : ObservableObject
                                              && item.Endpoint == FileTransferEndpointKind.Local && !item.IsSymbolicLink)
                                          && ActivePane.SelectedEntries.All(item => item.IsParent
                                              || item.Endpoint == FileTransferEndpointKind.Local && !item.IsSymbolicLink);
+    private bool CanOpenQuickView() => QuickView is not null && IsFilesPage
+                                       && ActivePane.SelectedEntry is
+                                       {
+                                           IsParent: false,
+                                           Type: FileEntryType.File,
+                                           Endpoint: FileTransferEndpointKind.Local,
+                                           IsSymbolicLink: false
+                                       };
     private bool CanCreateFolder() => !ReadOnlyMode && !IsFileOperationRunning
                                       && (!IsFilesPage || !ActivePane.IsArchive)
                                       && (!string.IsNullOrWhiteSpace(CurrentDirectoryPath) || SelectedTarget is not null);
@@ -3260,7 +3280,7 @@ public sealed class MainViewModel : ObservableObject
     {
         AddTargetCommand.NotifyCanExecuteChanged();
         UpdateTargetCommand.NotifyCanExecuteChanged(); RemoveTargetCommand.NotifyCanExecuteChanged(); StartScanCommand.NotifyCanExecuteChanged(); CancelScanCommand.NotifyCanExecuteChanged();
-        CopyPathCommand.NotifyCanExecuteChanged(); OpenResultCommand.NotifyCanExecuteChanged();
+        CopyPathCommand.NotifyCanExecuteChanged(); OpenResultCommand.NotifyCanExecuteChanged(); OpenQuickViewCommand.NotifyCanExecuteChanged();
         EditEntryCommand.NotifyCanExecuteChanged(); OpenFolderCommand.NotifyCanExecuteChanged();
         NavigateUpCommand.NotifyCanExecuteChanged();
         NavigateLeftUpCommand.NotifyCanExecuteChanged(); NavigateRightUpCommand.NotifyCanExecuteChanged();

@@ -169,6 +169,51 @@ public sealed class AutomaticDriveTests
     }
 
     [Fact]
+    public async Task QuickView_F3CommandReadsOnlyTheActivePaneFile()
+    {
+        await using var environment = await TestEnvironment.CreateAsync();
+        var leftRoot = Path.Combine(environment.Root, "left-preview");
+        var rightRoot = Path.Combine(environment.Root, "right-preview");
+        Directory.CreateDirectory(leftRoot);
+        Directory.CreateDirectory(rightRoot);
+        await File.WriteAllTextAsync(Path.Combine(leftRoot, "inactive.txt"), "inactive pane");
+        var activePath = Path.Combine(rightRoot, "active.txt");
+        await File.WriteAllTextAsync(activePath, "active pane only");
+        var coordinator = new ScanCoordinator(
+            new PortableFileSystemScanner(new ConfigurableExclusionPolicy()),
+            new ExtensionFileClassifier(), environment.Store,
+            new ScanPipelineOptions(2, 16, 4), NullLogger<ScanCoordinator>.Instance);
+        var viewModel = new MainViewModel(
+            environment.Store, coordinator, environment.Search,
+            new EmptySystemSearchHistory(), new UnusedDesktopInteraction(),
+            new LocalizationService(environment.Storage),
+            new FixedVolumeDiscovery(new StorageVolume(leftRoot, "Test", false)),
+            new CachedDirectoryBrowserService(), new UnusedDiskManagement(),
+            new SafeFileOperationService(environment.Storage),
+            new UserPreferencesService(environment.Storage),
+            new NullBackgroundAutomationService(), new DisabledOcrCapability(),
+            quickView: new QuickViewService());
+        viewModel.ShowPageCommand.Execute("Files");
+        viewModel.LeftPane.SelectedTarget = Target(leftRoot);
+        viewModel.RightPane.SelectedTarget = Target(rightRoot);
+        Assert.True(await TestWait.UntilAsync(
+            () => !viewModel.LeftPane.IsLoading && !viewModel.RightPane.IsLoading,
+            TimeSpan.FromSeconds(3)));
+        viewModel.LeftPane.SetSelection([viewModel.LeftPane.Entries.Single()]);
+        viewModel.RightPane.SetSelection([viewModel.RightPane.Entries.Single()]);
+        viewModel.RightPane.Activate();
+
+        await viewModel.OpenQuickViewCommand.ExecuteAsync(null);
+
+        var preview = Assert.IsType<QuickViewViewModel>(viewModel.QuickView);
+        Assert.True(preview.IsOpen);
+        Assert.Equal(Path.GetFullPath(activePath), preview.SourcePath);
+        Assert.Equal("active pane only", preview.Content);
+        Assert.DoesNotContain("inactive pane", preview.Content, StringComparison.Ordinal);
+        viewModel.CancelActiveWork();
+    }
+
+    [Fact]
     public async Task CommanderCopy_RoutesOnlyActiveLocalSelectionIntoPassiveZipTab()
     {
         await using var environment = await TestEnvironment.CreateAsync();
