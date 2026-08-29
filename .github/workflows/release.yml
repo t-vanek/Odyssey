@@ -13,14 +13,19 @@ on:
 permissions:
   contents: read
 
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   validate:
     name: Validate version and tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
@@ -40,30 +45,70 @@ jobs:
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
 
       - name: Check out tagged source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ steps.version.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify tag belongs to master
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          tag_commit=$(git rev-list -n 1 "$RELEASE_TAG")
+          if [[ -z "$tag_commit" || "$tag_commit" != "$(git rev-parse HEAD)" ]]; then
+            echo "Checked-out commit does not match $RELEASE_TAG." >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$tag_commit" origin/master; then
+            echo "$RELEASE_TAG does not point to a commit reachable from master." >&2
+            exit 1
+          fi
 
       - name: Install .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           global-json-file: global.json
 
       - name: Restore
         run: dotnet restore Odyssey.slnx
 
+      - name: Audit NuGet dependencies
+        shell: bash
+        run: |
+          mkdir -p TestResults
+          dotnet list Odyssey.slnx package --vulnerable --include-transitive --format json > TestResults/nuget-audit.json
+          jq -e '[.. | objects | .vulnerabilities? // empty] | flatten | length == 0' TestResults/nuget-audit.json
+
       - name: Build
-        run: dotnet build Odyssey.slnx --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:Version=${{ steps.version.outputs.version }}
+        run: dotnet build Odyssey.slnx --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:TreatWarningsAsErrors=true -p:Version=${{ steps.version.outputs.version }}
 
       - name: Test
-        run: dotnet test Odyssey.slnx --configuration Release --no-build --logger "trx;LogFileName=release-tests.trx" --results-directory TestResults
+        run: >-
+          dotnet test Odyssey.slnx --configuration Release --no-build --no-restore
+          --blame-hang --blame-hang-timeout 5m
+          --logger "trx;LogFileName=release-tests.trx"
+          --results-directory TestResults
+
+      - name: Repeat real stability scenarios
+        shell: bash
+        run: |
+          for pass in 1 2 3; do
+            dotnet test Odyssey.slnx --configuration Release --no-build --no-restore \
+              --filter "Category=Stability" \
+              --blame-hang --blame-hang-timeout 5m \
+              --logger "trx;LogFileName=release-stability-${pass}.trx" \
+              --results-directory TestResults
+          done
 
       - name: Upload release test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-test-results
-          path: TestResults/*.trx
+          path: TestResults/**
+          if-no-files-found: warn
           retention-days: 30
 
   package:
@@ -76,28 +121,42 @@ jobs:
           - os: windows-latest
             rid: win-x64
             archive: Odyssey-win-x64.zip
+            app: Odyssey.Desktop.exe
             updater: Odyssey.Updater.exe
+            mcp: Odyssey.Mcp.exe
           - os: ubuntu-latest
             rid: linux-x64
             archive: Odyssey-linux-x64.tar.gz
+            app: Odyssey.Desktop
             updater: Odyssey.Updater
+            mcp: Odyssey.Mcp
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - name: Check out tagged source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.validate.outputs.tag }}
+          persist-credentials: false
 
       - name: Install .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           global-json-file: global.json
+
+      - name: Restore runtime projects
+        shell: bash
+        run: |
+          dotnet restore src/Odyssey.Desktop/Odyssey.Desktop.csproj --runtime "${{ matrix.rid }}"
+          dotnet restore src/Odyssey.Updater/Odyssey.Updater.csproj --runtime "${{ matrix.rid }}"
+          dotnet restore src/Odyssey.Mcp/Odyssey.Mcp.csproj --runtime "${{ matrix.rid }}"
 
       - name: Publish Odyssey
         shell: bash
         run: |
           dotnet publish src/Odyssey.Desktop/Odyssey.Desktop.csproj \
             --configuration Release --runtime "${{ matrix.rid }}" --self-contained true \
+            --no-restore \
             --output publish/app \
             -p:Version="${{ needs.validate.outputs.version }}" \
             -p:ContinuousIntegrationBuild=true \
@@ -111,6 +170,7 @@ jobs:
         run: |
           dotnet publish src/Odyssey.Updater/Odyssey.Updater.csproj \
             --configuration Release --runtime "${{ matrix.rid }}" --self-contained true \
+            --no-restore \
             --output publish/updater \
             -p:Version="${{ needs.validate.outputs.version }}" \
             -p:ContinuousIntegrationBuild=true \
@@ -119,20 +179,43 @@ jobs:
             -p:PublishReadyToRun=true \
             -p:DebugType=embedded
           cp "publish/updater/${{ matrix.updater }}" "publish/app/${{ matrix.updater }}"
+          dotnet publish src/Odyssey.Mcp/Odyssey.Mcp.csproj \
+            --configuration Release --runtime "${{ matrix.rid }}" --self-contained true \
+            --no-restore \
+            --output publish/mcp \
+            -p:Version="${{ needs.validate.outputs.version }}" \
+            -p:ContinuousIntegrationBuild=true \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:PublishReadyToRun=true \
+            -p:DebugType=embedded
+          cp "publish/mcp/${{ matrix.mcp }}" "publish/app/${{ matrix.mcp }}"
           rm -f publish/app/*.pdb
+
+      - name: Verify published executables
+        shell: bash
+        run: |
+          test -s "publish/app/${{ matrix.app }}"
+          test -s "publish/app/${{ matrix.updater }}"
+          test -s "publish/app/${{ matrix.mcp }}"
 
       - name: Create Windows archive
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path publish/app/* -DestinationPath "${{ matrix.archive }}" -CompressionLevel Optimal
+        run: |
+          Compress-Archive -Path publish/app/* -DestinationPath "${{ matrix.archive }}" -CompressionLevel Optimal
+          if ((Get-Item "${{ matrix.archive }}").Length -le 0) { throw "Windows package is empty." }
 
       - name: Create Linux archive
         if: runner.os == 'Linux'
         shell: bash
-        run: tar -C publish/app -czf "${{ matrix.archive }}" .
+        run: |
+          tar -C publish/app -czf "${{ matrix.archive }}" .
+          test -s "${{ matrix.archive }}"
+          tar -tzf "${{ matrix.archive }}" >/dev/null
 
       - name: Upload platform package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: package-${{ matrix.rid }}
           path: ${{ matrix.archive }}
@@ -143,20 +226,24 @@ jobs:
     name: Publish GitHub release
     needs: [validate, package]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
-      - name: Check out tagged source
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.validate.outputs.tag }}
-
       - name: Download platform packages
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           pattern: package-*
           path: dist
           merge-multiple: true
+
+      - name: Verify downloaded packages
+        shell: bash
+        run: |
+          test -s dist/Odyssey-win-x64.zip
+          test -s dist/Odyssey-linux-x64.tar.gz
+          unzip -tqq dist/Odyssey-win-x64.zip
+          tar -tzf dist/Odyssey-linux-x64.tar.gz >/dev/null
 
       - name: Create checksums and update manifest
         shell: bash
@@ -200,17 +287,26 @@ jobs:
               }
             }' > update-manifest.json
 
-      - name: Create draft release with all assets
+      - name: Create or refresh draft release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
           RELEASE_VERSION: ${{ needs.validate.outputs.version }}
         run: |
-          gh release create "$RELEASE_TAG" dist/* \
-            --verify-tag \
-            --draft \
-            --generate-notes \
-            --title "Odyssey $RELEASE_VERSION"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            is_draft=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq .draft)
+            if [[ "$is_draft" != "true" ]]; then
+              echo "Release $RELEASE_TAG already exists and is published." >&2
+              exit 1
+            fi
+            gh release upload "$RELEASE_TAG" dist/* --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/* \
+              --verify-tag \
+              --draft \
+              --generate-notes \
+              --title "Odyssey $RELEASE_VERSION"
+          fi
 
       - name: Publish release
         env:

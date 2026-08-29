@@ -19,6 +19,33 @@ public interface IDirectoryBrowserService
     void Invalidate(string path);
 }
 
+public interface IFilteredDirectoryBrowserService
+{
+    Task<DirectoryPage> GetFilteredPageAsync(
+        string path,
+        int offset,
+        int pageSize,
+        DirectoryNameFilter filter,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IDirectoryComparisonService
+{
+    Task<DirectoryComparisonResult> CompareAsync(
+        DirectoryComparisonRequest request,
+        IProgress<DirectoryComparisonProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IDirectorySynchronizationPlanner
+{
+    IReadOnlyList<FileTransferRequest> CreatePlan(
+        DirectoryComparisonResult comparison,
+        IEnumerable<DirectoryComparisonEntry> selectedEntries,
+        DirectorySyncDirection direction,
+        bool verifyAfterCopy);
+}
+
 public interface IDiskManagementService
 {
     Task UnmountAsync(StorageVolume volume, CancellationToken cancellationToken = default);
@@ -38,6 +65,104 @@ public interface IFileOperationService
     Task<FileOperationRecord> RenameAsync(string sourcePath, string newName, CancellationToken cancellationToken = default);
     Task<FileOperationRecord> TrashAsync(string path, CancellationToken cancellationToken = default);
     Task<FileOperationRecord?> UndoLastAsync(CancellationToken cancellationToken = default);
+    Task<FileTransferOutcome> TransferAsync(
+        FileTransferRequest request,
+        IProgress<FileOperationProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IFileTransferQueueService : IAsyncDisposable
+{
+    event EventHandler? Changed;
+    IReadOnlyList<FileTransferJob> Items { get; }
+
+    Task InitializeAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<FileTransferJob>> EnqueueAsync(
+        IEnumerable<FileTransferRequest> requests,
+        CancellationToken cancellationToken = default);
+    Task PauseAsync(Guid id, CancellationToken cancellationToken = default);
+    Task ResumeAsync(Guid id, CancellationToken cancellationToken = default);
+    Task RetryAsync(Guid id, CancellationToken cancellationToken = default);
+    Task CancelAsync(Guid id, CancellationToken cancellationToken = default);
+}
+
+public interface ISftpConnectionService : IAsyncDisposable
+{
+    IReadOnlyList<SftpConnectionInfo> Connections { get; }
+    Task<SftpConnectionInfo> ConnectAsync(SftpConnectionRequest request, CancellationToken cancellationToken = default);
+    Task DisconnectAsync(string connectionKey, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<FileLocationEntry>> ListAsync(
+        string connectionKey, string path, CancellationToken cancellationToken = default);
+    Task<FileTransferOutcome> TransferAsync(
+        FileTransferRequest request,
+        IProgress<FileOperationProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IFileLocationProvider
+{
+    FileTransferEndpointKind Kind { get; }
+    FileLocationCapabilities Capabilities { get; }
+    Task<IReadOnlyList<FileLocationEntry>> ListAsync(
+        string path,
+        string? connectionKey = null,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IFileLocationProviderRegistry
+{
+    IFileLocationProvider Get(FileTransferEndpointKind kind);
+}
+
+public interface IArchiveService
+{
+    FileAccessMode AccessMode { get; set; }
+    IReadOnlyList<ArchiveFormatSupport> Formats { get; }
+    bool CanOpen(string archivePath);
+    ArchiveCapabilities GetCapabilities(string archivePath);
+    Task<IReadOnlyList<ArchiveEntry>> ListAsync(
+        string archivePath,
+        string directoryPath = "",
+        CancellationToken cancellationToken = default);
+    Task<FileTransferOutcome> ExtractAsync(
+        string archivePath,
+        string entryPath,
+        string destinationDirectory,
+        FileConflictPolicy conflictPolicy = FileConflictPolicy.Fail,
+        IProgress<FileOperationProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IArchiveMutationService
+{
+    FileAccessMode AccessMode { get; set; }
+    Task<FileTransferOutcome> CreateAsync(
+        string archivePath,
+        IReadOnlyList<string> sourcePaths,
+        IProgress<FileOperationProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+    Task<FileTransferOutcome> AddAsync(
+        string archivePath,
+        string sourcePath,
+        string destinationDirectory = "",
+        FileConflictPolicy conflictPolicy = FileConflictPolicy.Fail,
+        IProgress<FileOperationProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+    Task DeleteAsync(
+        string archivePath,
+        string entryPath,
+        IProgress<FileOperationProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+    Task DeleteManyAsync(
+        string archivePath,
+        IReadOnlyList<string> entryPaths,
+        IProgress<FileOperationProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IArchiveRecoveryService
+{
+    Task<ArchiveRecoveryReport> RecoverAsync(CancellationToken cancellationToken = default);
 }
 
 public interface IFileClassifier
@@ -101,7 +226,8 @@ public interface IScanCoordinator
     Task<ScanSession> ScanAsync(
         ScanTarget target,
         IProgress<ScanProgress>? progress,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        Guid? resumedFromScanId = null);
 }
 
 public interface IOdysseyStore
@@ -119,6 +245,10 @@ public interface IOdysseyStore
 
     Task StartScanAsync(ScanSession session, CancellationToken cancellationToken = default);
     Task CompleteScanAsync(Guid scanId, ScanStatus status, DateTimeOffset completedAt, CancellationToken cancellationToken = default);
+    Task SaveScanCheckpointAsync(Guid scanId, ScanProgress progress, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<InterruptedScanRecovery>> RecoverInterruptedScansAsync(
+        Guid sessionId,
+        CancellationToken cancellationToken = default);
     Task UpsertEntriesAsync(Guid scanId, IReadOnlyList<FileEntry> entries, CancellationToken cancellationToken = default);
     Task MarkMissingAsync(Guid targetId, Guid successfulScanId, CancellationToken cancellationToken = default);
     Task AddScanErrorsAsync(IReadOnlyList<ScanError> errors, CancellationToken cancellationToken = default);

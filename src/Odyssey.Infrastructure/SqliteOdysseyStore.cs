@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
@@ -12,7 +13,10 @@ public sealed class SqliteConnectionFactory
     private readonly int _cacheKiB;
     private readonly long _mmapBytes;
 
-    public SqliteConnectionFactory(ApplicationStorage storage, SystemPerformanceProfile? performance = null)
+    public SqliteConnectionFactory(
+        ApplicationStorage storage,
+        SystemPerformanceProfile? performance = null,
+        bool pooling = true)
     {
         performance ??= SystemPerformanceProfile.Current;
         DatabasePath = storage.DatabasePath;
@@ -23,7 +27,7 @@ public sealed class SqliteConnectionFactory
             DataSource = DatabasePath,
             Mode = SqliteOpenMode.ReadWriteCreate,
             Cache = SqliteCacheMode.Shared,
-            Pooling = true
+            Pooling = pooling
         }.ToString();
     }
 
@@ -81,7 +85,21 @@ public sealed class SqliteOdysseyStore(
                 TargetId TEXT NOT NULL REFERENCES ScanTargets(Id) ON DELETE CASCADE,
                 StartedAt TEXT NOT NULL,
                 CompletedAt TEXT NULL,
-                Status INTEGER NOT NULL
+                Status INTEGER NOT NULL,
+                ResumedFromScanId TEXT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS ScanCheckpoints (
+                ScanId TEXT PRIMARY KEY REFERENCES ScanSessions(Id) ON DELETE CASCADE,
+                FilesDiscovered INTEGER NOT NULL,
+                DirectoriesDiscovered INTEGER NOT NULL,
+                EntriesIndexed INTEGER NOT NULL,
+                BytesObserved INTEGER NOT NULL,
+                Errors INTEGER NOT NULL,
+                ElapsedTicks INTEGER NOT NULL,
+                CurrentPath TEXT NULL,
+                UpdatedAt TEXT NOT NULL,
+                OwnerProcessId INTEGER NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS Files (
@@ -117,6 +135,7 @@ public sealed class SqliteOdysseyStore(
 
             CREATE INDEX IF NOT EXISTS IX_ScanTargets_SessionId ON ScanTargets(SessionId);
             CREATE INDEX IF NOT EXISTS IX_ScanSessions_TargetId ON ScanSessions(TargetId);
+            CREATE INDEX IF NOT EXISTS IX_ScanSessions_Status ON ScanSessions(Status, TargetId);
             CREATE INDEX IF NOT EXISTS IX_Files_TargetId ON Files(TargetId);
             CREATE INDEX IF NOT EXISTS IX_Files_Target_Parent_Name ON Files(TargetId, ParentPath, Name);
             CREATE INDEX IF NOT EXISTS IX_Files_Target_Modified ON Files(TargetId, ModifiedAt, Id);
@@ -133,6 +152,7 @@ public sealed class SqliteOdysseyStore(
         await EnsureColumnAsync(connection, "Files", "ContentError", "TEXT NULL", cancellationToken).ConfigureAwait(false);
         await EnsureColumnAsync(connection, "Files", "ContentStatus", "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
         await EnsureColumnAsync(connection, "Files", "ContentAttemptedAt", "TEXT NULL", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, "ScanSessions", "ResumedFromScanId", "TEXT NULL", cancellationToken).ConfigureAwait(false);
         logger.LogInformation("Odyssey database initialized at {DatabasePath}", DatabasePath);
     }
 
@@ -237,11 +257,12 @@ public sealed class SqliteOdysseyStore(
     {
         await using var connection = await connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO ScanSessions(Id, TargetId, StartedAt, CompletedAt, Status) VALUES($id,$target,$started,NULL,$status);";
+        command.CommandText = "INSERT INTO ScanSessions(Id, TargetId, StartedAt, CompletedAt, Status, ResumedFromScanId) VALUES($id,$target,$started,NULL,$status,$resumed);";
         command.Parameters.AddWithValue("$id", session.Id.ToString());
         command.Parameters.AddWithValue("$target", session.TargetId.ToString());
         command.Parameters.AddWithValue("$started", FormatDate(session.StartedAt));
         command.Parameters.AddWithValue("$status", (int)ScanStatus.Running);
+        command.Parameters.AddWithValue("$resumed", (object?)session.ResumedFromScanId?.ToString() ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -254,6 +275,104 @@ public sealed class SqliteOdysseyStore(
         command.Parameters.AddWithValue("$status", (int)status);
         command.Parameters.AddWithValue("$id", scanId.ToString());
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task SaveScanCheckpointAsync(
+        Guid scanId,
+        ScanProgress progress,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO ScanCheckpoints(
+                ScanId, FilesDiscovered, DirectoriesDiscovered, EntriesIndexed,
+                BytesObserved, Errors, ElapsedTicks, CurrentPath, UpdatedAt, OwnerProcessId)
+            VALUES($scan,$files,$directories,$indexed,$bytes,$errors,$elapsed,$path,$updated,$owner)
+            ON CONFLICT(ScanId) DO UPDATE SET
+                FilesDiscovered=excluded.FilesDiscovered,
+                DirectoriesDiscovered=excluded.DirectoriesDiscovered,
+                EntriesIndexed=excluded.EntriesIndexed,
+                BytesObserved=excluded.BytesObserved,
+                Errors=excluded.Errors,
+                ElapsedTicks=excluded.ElapsedTicks,
+                CurrentPath=excluded.CurrentPath,
+                UpdatedAt=excluded.UpdatedAt,
+                OwnerProcessId=excluded.OwnerProcessId;
+            """;
+        command.Parameters.AddWithValue("$scan", scanId.ToString());
+        command.Parameters.AddWithValue("$files", progress.FilesDiscovered);
+        command.Parameters.AddWithValue("$directories", progress.DirectoriesDiscovered);
+        command.Parameters.AddWithValue("$indexed", progress.EntriesIndexed);
+        command.Parameters.AddWithValue("$bytes", progress.BytesObserved);
+        command.Parameters.AddWithValue("$errors", progress.Errors);
+        command.Parameters.AddWithValue("$elapsed", progress.Elapsed.Ticks);
+        command.Parameters.AddWithValue("$path", (object?)progress.CurrentPath ?? DBNull.Value);
+        command.Parameters.AddWithValue("$updated", FormatDate(DateTimeOffset.UtcNow));
+        command.Parameters.AddWithValue("$owner", Environment.ProcessId);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<InterruptedScanRecovery>> RecoverInterruptedScansAsync(
+        Guid sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        var candidates = new List<(InterruptedScanRecovery Recovery, int? OwnerProcessId)>();
+        await using var connection = await connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using (var query = connection.CreateCommand())
+        {
+            query.CommandText = """
+                SELECT s.Id, s.TargetId,
+                       COALESCE(c.FilesDiscovered,0), COALESCE(c.DirectoriesDiscovered,0),
+                       COALESCE(c.EntriesIndexed,0), COALESCE(c.BytesObserved,0), COALESCE(c.Errors,0),
+                       COALESCE(c.ElapsedTicks,0), c.CurrentPath,
+                       COALESCE(c.UpdatedAt,s.StartedAt), c.OwnerProcessId
+                FROM ScanSessions s
+                JOIN ScanTargets t ON t.Id=s.TargetId
+                LEFT JOIN ScanCheckpoints c ON c.ScanId=s.Id
+                WHERE t.SessionId=$session AND s.Status=$running
+                ORDER BY s.StartedAt;
+                """;
+            query.Parameters.AddWithValue("$session", sessionId.ToString());
+            query.Parameters.AddWithValue("$running", (int)ScanStatus.Running);
+            await using var reader = await query.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var checkpoint = new ScanProgress(
+                    reader.GetInt64(2), reader.GetInt64(3), reader.GetInt64(4),
+                    reader.GetInt64(5), reader.GetInt64(6), TimeSpan.FromTicks(reader.GetInt64(7)),
+                    reader.IsDBNull(8) ? null : reader.GetString(8));
+                candidates.Add((new InterruptedScanRecovery(
+                    Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), checkpoint,
+                    ParseDate(reader.GetString(9))), reader.IsDBNull(10) ? null : reader.GetInt32(10)));
+            }
+        }
+
+        var recoverable = candidates
+            .Where(item => item.OwnerProcessId is null || item.OwnerProcessId == Environment.ProcessId || !IsProcessAlive(item.OwnerProcessId.Value))
+            .Select(item => item.Recovery)
+            .ToArray();
+        if (recoverable.Length == 0) return recoverable;
+
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using var update = connection.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText = """
+            UPDATE ScanSessions
+            SET Status=$interrupted, CompletedAt=$completed
+            WHERE Id=$id AND Status=$running;
+            """;
+        update.Parameters.AddWithValue("$interrupted", (int)ScanStatus.Interrupted);
+        update.Parameters.AddWithValue("$completed", FormatDate(DateTimeOffset.UtcNow));
+        update.Parameters.AddWithValue("$running", (int)ScanStatus.Running);
+        var idParameter = update.Parameters.Add("$id", SqliteType.Text);
+        foreach (var item in recoverable)
+        {
+            idParameter.Value = item.ScanId.ToString();
+            await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return recoverable;
     }
 
     public async Task UpsertEntriesAsync(Guid scanId, IReadOnlyList<FileEntry> entries, CancellationToken cancellationToken = default)
@@ -755,6 +874,17 @@ public sealed class SqliteOdysseyStore(
     }
 
     private static string[] DeserializeArray(string value) => JsonSerializer.Deserialize<string[]>(value) ?? [];
+    private static bool IsProcessAlive(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            return !process.HasExited;
+        }
+        catch (ArgumentException) { return false; }
+        catch (InvalidOperationException) { return false; }
+        catch (System.ComponentModel.Win32Exception) { return true; }
+    }
     private static string FormatDate(DateTimeOffset value) => value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
     private static DateTimeOffset ParseDate(string value) => DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
 }

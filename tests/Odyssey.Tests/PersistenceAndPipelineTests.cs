@@ -7,6 +7,31 @@ namespace Odyssey.Tests;
 public sealed class PersistenceAndPipelineTests
 {
     [Fact]
+    public async Task InterruptedScan_CheckpointIsRecoveredOnce_WithLastDurableProgress()
+    {
+        await using var environment = await TestEnvironment.CreateAsync();
+        var created = await environment.CreateInvestigationAsync(Path.Combine(environment.Root, "interrupted"));
+        var checkpoint = new ScanProgress(
+            FilesDiscovered: 127,
+            DirectoriesDiscovered: 14,
+            EntriesIndexed: 120,
+            BytesObserved: 4_096,
+            Errors: 2,
+            Elapsed: TimeSpan.FromSeconds(3),
+            CurrentPath: Path.Combine(created.Target.RootPath, "work"));
+        await environment.Store.SaveScanCheckpointAsync(created.Scan.Id, checkpoint);
+
+        var recovered = await environment.Store.RecoverInterruptedScansAsync(created.Session.Id);
+        var recoveredAgain = await environment.Store.RecoverInterruptedScansAsync(created.Session.Id);
+
+        var item = Assert.Single(recovered);
+        Assert.Equal(created.Scan.Id, item.ScanId);
+        Assert.Equal(created.Target.Id, item.TargetId);
+        Assert.Equal(checkpoint, item.Checkpoint);
+        Assert.Empty(recoveredAgain);
+    }
+
+    [Fact]
     public async Task SessionsTargetsAndScanSessions_Persist()
     {
         await using var environment = await TestEnvironment.CreateAsync();
@@ -79,6 +104,27 @@ public sealed class PersistenceAndPipelineTests
         Assert.Single(results.Results);
     }
 
+    [Theory]
+    [InlineData(0.51, SearchConfidenceBand.Possible)]
+    [InlineData(0.52, SearchConfidenceBand.Medium)]
+    [InlineData(0.77, SearchConfidenceBand.Medium)]
+    [InlineData(0.78, SearchConfidenceBand.High)]
+    public void SearchConfidence_UsesStableEvidenceBands(double score, SearchConfidenceBand expected)
+    {
+        var result = new SearchResult
+        {
+            FileId = 1,
+            Name = "work.txt",
+            FullPath = "/work.txt",
+            Type = FileEntryType.File,
+            Category = FileCategory.Documents,
+            Score = score,
+            TargetId = Guid.NewGuid()
+        };
+
+        Assert.Equal(expected, result.Confidence);
+    }
+
     [Fact]
     public async Task CancelledScan_DoesNotMarkPreviouslyIndexedEntriesMissing()
     {
@@ -116,8 +162,10 @@ public sealed class PersistenceAndPipelineTests
 
         var secondScan = new ScanSession
         {
-            Id = Guid.NewGuid(), TargetId = created.Target.Id,
-            StartedAt = DateTimeOffset.UtcNow, Status = ScanStatus.Running
+            Id = Guid.NewGuid(),
+            TargetId = created.Target.Id,
+            StartedAt = DateTimeOffset.UtcNow,
+            Status = ScanStatus.Running
         };
         await environment.Store.StartScanAsync(secondScan);
         await environment.Store.AddScanErrorsAsync(

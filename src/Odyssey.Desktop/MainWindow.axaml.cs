@@ -15,6 +15,7 @@ public sealed partial class MainWindow : Window
     private bool _searchHasFocus;
     private bool _tipPointerOver;
     private bool _tipTransitioning;
+    private bool _applyingPaneSelection;
 
     public MainWindow()
     {
@@ -37,6 +38,7 @@ public sealed partial class MainWindow : Window
             tipPanel.PointerExited += (_, _) => { _tipPointerOver = false; UpdateTipTimer(); };
         }
         Opened += MainWindowOpened;
+        KeyDown += MainWindowKeyDown;
         Closed += (_, _) => { _windowOpen = false; _rescueTipTimer.Stop(); };
     }
 
@@ -44,14 +46,55 @@ public sealed partial class MainWindow : Window
     {
         _viewModel = viewModel;
         DataContext = viewModel;
+        viewModel.LeftPane.SelectionRequested += PaneSelectionRequested;
+        viewModel.RightPane.SelectionRequested += PaneSelectionRequested;
         Closing += (_, _) => viewModel.CancelActiveWork();
     }
 
     private void LeftSelectionChanged(object? sender, SelectionChangedEventArgs e) =>
-        UpdatePaneSelection(sender, _viewModel?.LeftPane);
+        UpdatePaneSelectionUnlessApplying(sender, _viewModel?.LeftPane);
 
     private void RightSelectionChanged(object? sender, SelectionChangedEventArgs e) =>
-        UpdatePaneSelection(sender, _viewModel?.RightPane);
+        UpdatePaneSelectionUnlessApplying(sender, _viewModel?.RightPane);
+
+    private void UpdatePaneSelectionUnlessApplying(object? sender, FilePaneViewModel? pane)
+    {
+        if (!_applyingPaneSelection) UpdatePaneSelection(sender, pane);
+    }
+
+    private void PaneSelectionRequested(object? sender, IReadOnlyList<BrowserEntry> selection)
+    {
+        if (_viewModel is null || sender is not FilePaneViewModel pane) return;
+        var list = this.FindControl<ListBox>(ReferenceEquals(pane, _viewModel.LeftPane)
+            ? "LeftFileList"
+            : "RightFileList");
+        if (list?.SelectedItems is null) return;
+        _applyingPaneSelection = true;
+        try
+        {
+            list.SelectedItems.Clear();
+            foreach (var item in selection.Where(pane.Entries.Contains)) list.SelectedItems.Add(item);
+        }
+        finally { _applyingPaneSelection = false; }
+    }
+
+    private void ComparisonSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ListBox list || _viewModel is null) return;
+        _viewModel.SetComparisonSelection(list.SelectedItems?.OfType<DirectoryComparisonRow>() ?? []);
+    }
+
+    private void RemoteSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ListBox list || _viewModel is null) return;
+        _viewModel.SetRemoteSelection(list.SelectedItems?.OfType<RemoteBrowserRow>() ?? []);
+    }
+
+    private async void RemoteListDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (_viewModel is null || sender is not ListBox { SelectedItem: RemoteBrowserRow row }) return;
+        await _viewModel.OpenRemoteEntryAsync(row);
+    }
 
     private void LeftListDoubleTapped(object? sender, TappedEventArgs e) => OpenFromPane(_viewModel?.LeftPane);
     private void RightListDoubleTapped(object? sender, TappedEventArgs e) => OpenFromPane(_viewModel?.RightPane);
@@ -83,6 +126,68 @@ public sealed partial class MainWindow : Window
         if (e.Key != Key.Enter || _viewModel.RescueSearchCommand.CanExecute(null) != true) return;
         _viewModel.RescueSearchCommand.Execute(null);
         e.Handled = true;
+    }
+
+    private void MainWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (_viewModel?.IsFilesPage != true || e.Handled) return;
+        var control = e.Source as Control;
+        var activeFilter = this.FindControl<TextBox>(ReferenceEquals(_viewModel.ActivePane, _viewModel.LeftPane)
+            ? "LeftQuickFilterBox"
+            : "RightQuickFilterBox");
+        var activeList = this.FindControl<ListBox>(ReferenceEquals(_viewModel.ActivePane, _viewModel.LeftPane)
+            ? "LeftFileList"
+            : "RightFileList");
+        var controlKey = e.KeyModifiers.HasFlag(KeyModifiers.Control);
+        var shiftKey = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+
+        if (controlKey && e.Key == Key.F)
+        {
+            activeFilter?.Focus();
+            activeFilter?.SelectAll();
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.Escape && _viewModel.ActivePane.HasActiveFilter)
+        {
+            _viewModel.ActivePane.FilterText = string.Empty;
+            activeList?.Focus();
+            e.Handled = true;
+            return;
+        }
+        var tabShortcut = controlKey && (e.Key is Key.T or Key.W or Key.D);
+        if (control is TextBox
+            && e.Key is not (Key.F2 or Key.F3 or Key.F4 or Key.F5 or Key.F6 or Key.F7 or Key.F8)
+            && !tabShortcut)
+            return;
+
+        System.Windows.Input.ICommand? command = e.Key switch
+        {
+            Key.F2 => _viewModel.RenameEntryCommand,
+            Key.F3 => _viewModel.OpenResultCommand,
+            Key.F4 => _viewModel.EditEntryCommand,
+            Key.F5 => _viewModel.CopyEntryCommand,
+            Key.F6 => _viewModel.MoveEntryCommand,
+            Key.F7 => _viewModel.CreateFolderCommand,
+            Key.F8 => _viewModel.TrashEntryCommand,
+            Key.A when controlKey => _viewModel.SelectAllCommand,
+            Key.I when controlKey => _viewModel.InvertSelectionCommand,
+            Key.E when controlKey => _viewModel.SelectByExtensionCommand,
+            Key.M when controlKey => _viewModel.SelectByMaskCommand,
+            Key.R when controlKey && shiftKey => _viewModel.RestorePreviousSelectionCommand,
+            Key.T when controlKey && shiftKey => _viewModel.ReopenClosedTabCommand,
+            Key.T when controlKey => _viewModel.NewTabCommand,
+            Key.W when controlKey => _viewModel.CloseTabCommand,
+            Key.D when controlKey && shiftKey => _viewModel.DuplicateTabCommand,
+            _ => null
+        };
+        var parameter = command == _viewModel.NewTabCommand
+                        || command == _viewModel.CloseTabCommand
+                        || command == _viewModel.DuplicateTabCommand
+                        || command == _viewModel.ReopenClosedTabCommand
+            ? ReferenceEquals(_viewModel.ActivePane, _viewModel.RightPane) ? "Right" : "Left"
+            : null;
+        e.Handled = Execute(command, parameter);
     }
 
     private void SearchSuggestionSelected(object? sender, SelectionChangedEventArgs e)
@@ -125,14 +230,17 @@ public sealed partial class MainWindow : Window
     {
         if (_tipTransitioning || _viewModel?.ShowRescueWelcome != true) return;
         if (this.FindControl<TextBlock>("RescueTipText") is not { } tipText) return;
+        var quoteText = this.FindControl<TextBlock>("OdysseyQuoteText");
         _tipTransitioning = true;
         try
         {
             tipText.Opacity = 0;
+            if (quoteText is not null) quoteText.Opacity = 0;
             await Task.Delay(190);
             if (!_windowOpen || _viewModel?.ShowRescueWelcome != true) return;
             _viewModel.AdvanceRescueTip();
             tipText.Opacity = 1;
+            if (quoteText is not null) quoteText.Opacity = 1;
         }
         finally
         {
@@ -167,14 +275,22 @@ public sealed partial class MainWindow : Window
     }
 
     private void OpenMenuClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Execute(_viewModel?.OpenResultCommand);
+    private void EditMenuClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Execute(_viewModel?.EditEntryCommand);
     private void RenameMenuClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Execute(_viewModel?.RenameEntryCommand);
     private void CopyMenuClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Execute(_viewModel?.CopyEntryCommand);
     private void MoveMenuClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Execute(_viewModel?.MoveEntryCommand);
     private void TrashMenuClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Execute(_viewModel?.TrashEntryCommand);
     private void CopyPathMenuClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Execute(_viewModel?.CopyPathCommand);
+    private void SelectAllMenuClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Execute(_viewModel?.SelectAllCommand);
+    private void InvertSelectionMenuClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Execute(_viewModel?.InvertSelectionCommand);
+    private void SelectExtensionMenuClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Execute(_viewModel?.SelectByExtensionCommand);
+    private void SelectMaskMenuClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Execute(_viewModel?.SelectByMaskCommand);
+    private void RestoreSelectionMenuClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Execute(_viewModel?.RestorePreviousSelectionCommand);
 
-    private static void Execute(System.Windows.Input.ICommand? command)
+    private static bool Execute(System.Windows.Input.ICommand? command, object? parameter = null)
     {
-        if (command?.CanExecute(null) == true) command.Execute(null);
+        if (command?.CanExecute(parameter) != true) return false;
+        command.Execute(parameter);
+        return true;
     }
 }

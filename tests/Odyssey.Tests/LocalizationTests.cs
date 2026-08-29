@@ -33,6 +33,8 @@ public sealed class LocalizationTests
             Assert.Equal("Prohledat", localization["Scan"]);
             Assert.Equal("Co hledáte?", localization["RescueTitle"]);
             Assert.Equal("Jednoduchý režim", localization["MenuRescue"]);
+            Assert.Equal("Odyssey — hledání souborů", localization["WindowTitle"]);
+            Assert.Contains("— Odyssey", localization["RescueQuote1"]);
             Assert.Contains("vše, co si pamatujete", localization["RescueSubtitle"]);
             Assert.Equal("Připravuji Odyssey…", localization["SplashPreparing"]);
             Assert.NotEqual("RescueNoResultsDetail", localization["RescueNoResultsDetail"]);
@@ -46,6 +48,8 @@ public sealed class LocalizationTests
             Assert.Equal("Scan", reloaded["Scan"]);
             Assert.Equal("What are you looking for?", reloaded["RescueTitle"]);
             Assert.Equal("Simple mode", reloaded["MenuRescue"]);
+            Assert.Equal("Odyssey — File search", reloaded["WindowTitle"]);
+            Assert.Contains("— Odyssey", reloaded["RescueQuote1"]);
             Assert.Contains("anything you remember", reloaded["RescueSubtitle"]);
             Assert.Equal("Preparing Odyssey…", reloaded["SplashPreparing"]);
             Assert.NotEqual("RescueNoResultsDetail", reloaded["RescueNoResultsDetail"]);

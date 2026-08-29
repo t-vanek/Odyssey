@@ -3,6 +3,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Odyssey.Agent;
 using Odyssey.Core;
 using Odyssey.Infrastructure;
 using Odyssey.Search;
@@ -35,6 +36,10 @@ public sealed class App : Application
             });
             services.AddSingleton<UpdateService>();
             services.AddSingleton<UpdateViewModel>();
+            services.AddSingleton<AgentAccessPolicyService>();
+            services.AddSingleton<AgentOperationStore>();
+            services.AddSingleton<AgentOperationService>();
+            services.AddSingleton<AgentApprovalViewModel>();
             services.AddSingleton<SqliteConnectionFactory>();
             services.AddSingleton<IOdysseyStore, SqliteOdysseyStore>();
             services.AddSingleton<IFileClassifier, ExtensionFileClassifier>();
@@ -45,8 +50,21 @@ public sealed class App : Application
             services.AddSingleton<IOcrCapability>(provider => provider.GetRequiredService<LocalContentExtractor>());
             services.AddSingleton<IStorageVolumeDiscovery, PortableStorageVolumeDiscovery>();
             services.AddSingleton<IDirectoryBrowserService, CachedDirectoryBrowserService>();
+            services.AddSingleton<IDirectoryComparisonService, DirectoryComparisonService>();
+            services.AddSingleton<IDirectorySynchronizationPlanner, DirectorySynchronizationPlanner>();
             services.AddSingleton<IDiskManagementService, PortableDiskManagementService>();
             services.AddSingleton<IFileOperationService, SafeFileOperationService>();
+            services.AddSingleton(provider => new SafeArchiveService(
+                storage: provider.GetRequiredService<ApplicationStorage>()));
+            services.AddSingleton<IArchiveService>(provider => provider.GetRequiredService<SafeArchiveService>());
+            services.AddSingleton<IArchiveMutationService>(provider => provider.GetRequiredService<SafeArchiveService>());
+            services.AddSingleton<IArchiveRecoveryService>(provider => provider.GetRequiredService<SafeArchiveService>());
+            services.AddSingleton<ISftpConnectionService, SftpConnectionService>();
+            services.AddSingleton<IFileLocationProvider, LocalFileLocationProvider>();
+            services.AddSingleton<IFileLocationProvider, SftpFileLocationProvider>();
+            services.AddSingleton<IFileLocationProvider, ArchiveFileLocationProvider>();
+            services.AddSingleton<IFileLocationProviderRegistry, FileLocationProviderRegistry>();
+            services.AddSingleton<IFileTransferQueueService, FileTransferQueueService>();
             services.AddSingleton<UserPreferencesService>();
             services.AddSingleton(provider => new ScanPipelineOptions(
                 PerformanceProfile: provider.GetRequiredService<SystemPerformanceProfile>()));
@@ -87,6 +105,8 @@ public sealed class App : Application
         await Task.Run(() => services.GetRequiredService<LocalContentExtractor>());
 
         var viewModel = services.GetRequiredService<MainViewModel>();
+        var approvals = services.GetRequiredService<AgentApprovalViewModel>();
+        await approvals.InitializeAsync();
         var updater = services.GetRequiredService<UpdateViewModel>();
         updater.RestartRequested += (_, _) => desktop.Shutdown();
         var window = services.GetRequiredService<MainWindow>();
@@ -97,6 +117,7 @@ public sealed class App : Application
         window.Show();
         splash.Close();
         window.Activate();
+        approvals.BeginPolling();
         updater.BeginAutomaticCheck();
     }
 }

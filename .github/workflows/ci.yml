@@ -10,8 +10,12 @@ on:
 permissions:
   contents: read
 
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -22,29 +26,56 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Install .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           global-json-file: global.json
 
       - name: Restore
         run: dotnet restore Odyssey.slnx
 
+      - name: Audit NuGet dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p TestResults
+          dotnet list Odyssey.slnx package --vulnerable --include-transitive --format json > TestResults/nuget-audit.json
+          jq -e '[.. | objects | .vulnerabilities? // empty] | flatten | length == 0' TestResults/nuget-audit.json
+
       - name: Build
-        run: dotnet build Odyssey.slnx --configuration Release --no-restore -p:ContinuousIntegrationBuild=true
+        run: dotnet build Odyssey.slnx --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:TreatWarningsAsErrors=true
 
       - name: Test
-        run: dotnet test Odyssey.slnx --configuration Release --no-build --logger "trx;LogFileName=tests-${{ runner.os }}.trx" --results-directory TestResults
+        run: >-
+          dotnet test Odyssey.slnx --configuration Release --no-build --no-restore
+          --collect "XPlat Code Coverage"
+          --blame-hang --blame-hang-timeout 5m
+          --logger "trx;LogFileName=tests-${{ runner.os }}.trx"
+          --results-directory TestResults
+
+      - name: Repeat real stability scenarios
+        shell: bash
+        run: |
+          for pass in 1 2 3; do
+            dotnet test Odyssey.slnx --configuration Release --no-build --no-restore \
+              --filter "Category=Stability" \
+              --blame-hang --blame-hang-timeout 5m \
+              --logger "trx;LogFileName=stability-${{ runner.os }}-${pass}.trx" \
+              --results-directory TestResults
+          done
 
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-results-${{ runner.os }}
-          path: TestResults/*.trx
+          path: TestResults/**
           if-no-files-found: warn
           retention-days: 14

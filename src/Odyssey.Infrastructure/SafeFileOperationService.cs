@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Security.Cryptography;
 using Odyssey.Core;
 
 namespace Odyssey.Infrastructure;
@@ -37,14 +38,33 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
     public Task<FileOperationRecord> CopyAsync(
         string sourcePath, string destinationDirectory,
         IProgress<FileOperationProgress>? progress = null,
-        CancellationToken cancellationToken = default) =>
-        TransferAsync(sourcePath, destinationDirectory, move: false, progress, cancellationToken);
+        CancellationToken cancellationToken = default) => TransferLegacyAsync(
+        new FileTransferRequest
+        {
+            Kind = FileOperationKind.Copy,
+            SourcePath = sourcePath,
+            DestinationDirectory = destinationDirectory,
+            VerifyAfterCopy = false
+        }, progress, cancellationToken);
 
     public Task<FileOperationRecord> MoveAsync(
         string sourcePath, string destinationDirectory,
         IProgress<FileOperationProgress>? progress = null,
-        CancellationToken cancellationToken = default) =>
-        TransferAsync(sourcePath, destinationDirectory, move: true, progress, cancellationToken);
+        CancellationToken cancellationToken = default) => TransferLegacyAsync(
+        new FileTransferRequest
+        {
+            Kind = FileOperationKind.Move,
+            SourcePath = sourcePath,
+            DestinationDirectory = destinationDirectory,
+            VerifyAfterCopy = false
+        }, progress, cancellationToken);
+
+    private async Task<FileOperationRecord> TransferLegacyAsync(
+        FileTransferRequest request,
+        IProgress<FileOperationProgress>? progress,
+        CancellationToken cancellationToken) =>
+        (await TransferAsync(request, progress, cancellationToken)).Operation
+        ?? throw new IOException("The operation was skipped.");
 
     public async Task<FileOperationRecord> RenameAsync(
         string sourcePath, string newName, CancellationToken cancellationToken = default)
@@ -88,7 +108,9 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
         try
         {
             FileOperationRecord? record;
-            lock (_history) record = _history.LastOrDefault(item => item.CanUndo);
+            // AddRecord keeps the newest operation at index zero, therefore undo
+            // must select the first reversible item rather than the oldest one.
+            lock (_history) record = _history.FirstOrDefault(item => item.CanUndo);
             if (record is null) return null;
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -104,6 +126,7 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
                     if (record.DestinationPath is null || !EntryExists(record.DestinationPath))
                         throw new IOException("The copied item is no longer available.");
                     await MoveToTrashCoreAsync(record.DestinationPath, cancellationToken);
+                    RestoreReplacedItem(record);
                     break;
                 case FileOperationKind.Move:
                 case FileOperationKind.Rename:
@@ -111,6 +134,7 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
                         throw new IOException("The moved item is no longer available.");
                     EnsureAvailable(record.SourcePath);
                     MoveEntry(record.DestinationPath, record.SourcePath);
+                    RestoreReplacedItem(record);
                     break;
                 default:
                     return null;
@@ -126,46 +150,75 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
         finally { _operationGate.Release(); }
     }
 
-    private async Task<FileOperationRecord> TransferAsync(
-        string sourcePath, string destinationDirectory, bool move,
-        IProgress<FileOperationProgress>? progress, CancellationToken cancellationToken)
+    public async Task<FileTransferOutcome> TransferAsync(
+        FileTransferRequest request,
+        IProgress<FileOperationProgress>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         EnsureWritable();
+        if (request.Kind is not (FileOperationKind.Copy or FileOperationKind.Move))
+            throw new ArgumentException("A transfer must be a copy or move operation.", nameof(request));
         await _operationGate.WaitAsync(cancellationToken);
         try
         {
-            var source = EnsureEntry(sourcePath);
-            EnsureDirectory(destinationDirectory);
-            var destination = Path.Combine(Path.GetFullPath(destinationDirectory), Path.GetFileName(source));
+            var source = EnsureEntry(request.SourcePath);
+            EnsureDirectory(request.DestinationDirectory);
+            var destination = Path.Combine(Path.GetFullPath(request.DestinationDirectory), Path.GetFileName(source));
             if (PathEquals(source, destination))
                 throw new IOException("Source and destination are the same.");
             if (Directory.Exists(source) && IsInside(source, destination))
                 throw new IOException("A folder cannot be copied or moved inside itself.");
-            EnsureAvailable(destination);
-
-            if (move)
+            if (EntryExists(destination))
             {
-                try
+                switch (request.ConflictPolicy)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    MoveEntry(source, destination);
-                    progress?.Report(new FileOperationProgress(GetEntrySize(destination), GetEntrySize(destination), destination));
-                    return AddRecord(FileOperationKind.Move, source, destination, canUndo: true);
-                }
-                catch (IOException) when (!EntryExists(destination))
-                {
-                    // A rename cannot cross some filesystem boundaries. Copy fully first,
-                    // then remove the source only after the destination succeeded.
+                    case FileConflictPolicy.Skip:
+                        return new FileTransferOutcome(null, destination, Skipped: true, Verified: false);
+                    case FileConflictPolicy.KeepBoth:
+                        destination = FindAvailableName(destination);
+                        break;
+                    case FileConflictPolicy.Replace:
+                        break;
+                    default:
+                        EnsureAvailable(destination);
+                        break;
                 }
             }
 
-            var total = GetEntrySize(source);
-            long completed = 0;
-            var progressClock = Stopwatch.StartNew();
-            long lastProgressReport = -100;
+            string? replacedItemBackup = null;
+            if (request.ConflictPolicy == FileConflictPolicy.Replace && EntryExists(destination))
+            {
+                replacedItemBackup = MoveToReplacementBackup(destination);
+            }
+
+            var move = request.Kind == FileOperationKind.Move;
+            var temporaryDestination = destination + $".odyssey-part-{Guid.NewGuid():N}";
+
             try
             {
-                await CopyEntryAsync(source, destination, value =>
+                if (move)
+                {
+                    try
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        MoveEntry(source, destination);
+                        var size = GetEntrySize(destination);
+                        progress?.Report(new FileOperationProgress(size, size, destination));
+                        var moved = AddRecord(FileOperationKind.Move, source, destination, canUndo: true, replacedItemBackup);
+                        return new FileTransferOutcome(moved, destination, Skipped: false, Verified: true);
+                    }
+                    catch (IOException) when (!EntryExists(destination))
+                    {
+                        // A rename cannot cross some filesystem boundaries. Copy fully first,
+                        // then remove the source only after the destination succeeded.
+                    }
+                }
+
+                var total = GetEntrySize(source);
+                long completed = 0;
+                var progressClock = Stopwatch.StartNew();
+                long lastProgressReport = -100;
+                await CopyEntryAsync(source, temporaryDestination, value =>
                 {
                     completed += value;
                     var now = progressClock.ElapsedMilliseconds;
@@ -175,16 +228,21 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
                         progress?.Report(new FileOperationProgress(completed, total, source));
                     }
                 }, cancellationToken);
+                var verified = !request.VerifyAfterCopy || await VerifyEntriesAsync(source, temporaryDestination, cancellationToken);
+                if (!verified) throw new IOException("The copied data failed SHA-256 verification.");
+                MoveEntry(temporaryDestination, destination);
                 if (move) DeleteEntry(source);
+
+                var record = AddRecord(request.Kind, source, destination, canUndo: true, replacedItemBackup);
+                return new FileTransferOutcome(record, destination, Skipped: false, Verified: request.VerifyAfterCopy);
             }
             catch
             {
-                TryDeleteEntry(destination);
+                TryDeleteEntry(temporaryDestination);
+                if (replacedItemBackup is not null && EntryExists(replacedItemBackup) && !EntryExists(destination))
+                    MoveEntry(replacedItemBackup, destination);
                 throw;
             }
-
-            return AddRecord(move ? FileOperationKind.Move : FileOperationKind.Copy,
-                source, destination, canUndo: true);
         }
         finally { _operationGate.Release(); }
     }
@@ -282,8 +340,10 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
                 process.Start();
                 await process.WaitForExitAsync(cancellationToken);
                 if (process.ExitCode == 0) return;
-                var error = await process.StandardError.ReadToEndAsync(cancellationToken);
-                throw new IOException(string.IsNullOrWhiteSpace(error) ? "The item could not be moved to trash." : error.Trim());
+                // gio cannot trash from some mounts (temporary, network and
+                // container filesystems). Fall through to Odyssey's private,
+                // recoverable trash instead of turning a safe undo into a failure.
+                await process.StandardError.ReadToEndAsync(cancellationToken);
             }
             catch (Win32Exception)
             {
@@ -300,12 +360,18 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
     }
 
     private FileOperationRecord AddRecord(
-        FileOperationKind kind, string source, string? destination, bool canUndo)
+        FileOperationKind kind, string source, string? destination, bool canUndo,
+        string? replacedItemBackup = null)
     {
         var record = new FileOperationRecord
         {
-            Id = Guid.NewGuid(), Kind = kind, SourcePath = source,
-            DestinationPath = destination, CompletedAt = DateTimeOffset.UtcNow, CanUndo = canUndo
+            Id = Guid.NewGuid(),
+            Kind = kind,
+            SourcePath = source,
+            DestinationPath = destination,
+            ReplacedItemBackupPath = replacedItemBackup,
+            CompletedAt = DateTimeOffset.UtcNow,
+            CanUndo = canUndo
         };
         lock (_history)
         {
@@ -313,6 +379,109 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
             if (_history.Count > 100) _history.RemoveRange(100, _history.Count - 100);
         }
         return record;
+    }
+
+    private static void RestoreReplacedItem(FileOperationRecord record)
+    {
+        if (record.ReplacedItemBackupPath is null || !EntryExists(record.ReplacedItemBackupPath)) return;
+        if (record.DestinationPath is null) throw new IOException("The replaced item has no destination to restore.");
+        EnsureAvailable(record.DestinationPath);
+        MoveEntry(record.ReplacedItemBackupPath, record.DestinationPath);
+    }
+
+    private static string FindAvailableName(string destination)
+    {
+        var directory = Path.GetDirectoryName(destination)!;
+        var extension = File.Exists(destination) ? Path.GetExtension(destination) : string.Empty;
+        var name = extension.Length > 0 ? Path.GetFileNameWithoutExtension(destination) : Path.GetFileName(destination);
+        for (var index = 2; index < 10_000; index++)
+        {
+            var candidate = Path.Combine(directory, $"{name} ({index}){extension}");
+            if (!EntryExists(candidate)) return candidate;
+        }
+        throw new IOException("No available destination name could be generated.");
+    }
+
+    private string MoveToReplacementBackup(string destination)
+    {
+        var backupDirectory = Path.Combine(storage.DirectoryPath, "OperationBackups");
+        var centralBackup = Path.Combine(backupDirectory,
+            $"{Path.GetFileName(destination)}.odyssey-backup-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(backupDirectory);
+            MoveEntry(destination, centralBackup);
+            return centralBackup;
+        }
+        catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && EntryExists(destination))
+        {
+            TryDeleteEntry(centralBackup);
+        }
+
+        var directory = Path.GetDirectoryName(destination)!;
+        var name = Path.GetFileName(destination);
+        var adjacentBackup = Path.Combine(directory, $".{name}.odyssey-backup-{Guid.NewGuid():N}");
+        MoveEntry(destination, adjacentBackup);
+        return adjacentBackup;
+    }
+
+    private static async Task<bool> VerifyEntriesAsync(
+        string source, string destination, CancellationToken cancellationToken)
+    {
+        if (File.Exists(source)) return await FilesEqualAsync(source, destination, cancellationToken);
+        if (!Directory.Exists(source) || !Directory.Exists(destination)) return false;
+
+        var sourceRoot = Path.GetFullPath(source);
+        var destinationRoot = Path.GetFullPath(destination);
+        var sourceEntries = EnumerateTreeWithoutFollowingLinks(sourceRoot)
+            .Select(path => Path.GetRelativePath(sourceRoot, path))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToArray();
+        var destinationEntries = EnumerateTreeWithoutFollowingLinks(destinationRoot)
+            .Select(path => Path.GetRelativePath(destinationRoot, path))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToArray();
+        if (!sourceEntries.SequenceEqual(destinationEntries, PathComparer)) return false;
+
+        foreach (var relativePath in sourceEntries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var sourcePath = Path.Combine(sourceRoot, relativePath);
+            var destinationPath = Path.Combine(destinationRoot, relativePath);
+            if (Directory.Exists(sourcePath) != Directory.Exists(destinationPath)) return false;
+            if (File.Exists(sourcePath) && !await FilesEqualAsync(sourcePath, destinationPath, cancellationToken)) return false;
+        }
+        return true;
+    }
+
+    private static IEnumerable<string> EnumerateTreeWithoutFollowingLinks(string root)
+    {
+        var pending = new Stack<DirectoryInfo>();
+        pending.Push(new DirectoryInfo(root));
+        while (pending.Count > 0)
+        {
+            foreach (var entry in pending.Pop().EnumerateFileSystemInfos())
+            {
+                yield return entry.FullName;
+                if (entry is DirectoryInfo directory && directory.LinkTarget is null)
+                    pending.Push(directory);
+            }
+        }
+    }
+
+    private static async Task<bool> FilesEqualAsync(
+        string source, string destination, CancellationToken cancellationToken)
+    {
+        var sourceInfo = new FileInfo(source);
+        var destinationInfo = new FileInfo(destination);
+        if (!destinationInfo.Exists || sourceInfo.Length != destinationInfo.Length) return false;
+        await using var sourceStream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read,
+            BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        await using var destinationStream = new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.Read,
+            BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        var sourceHash = await SHA256.HashDataAsync(sourceStream, cancellationToken);
+        var destinationHash = await SHA256.HashDataAsync(destinationStream, cancellationToken);
+        return CryptographicOperations.FixedTimeEquals(sourceHash, destinationHash);
     }
 
     private void EnsureWritable()
@@ -348,9 +517,12 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
     }
 
     private static bool EntryExists(string path) => File.Exists(path) || Directory.Exists(path);
+    private static StringComparer PathComparer => OperatingSystem.IsWindows()
+        ? StringComparer.OrdinalIgnoreCase
+        : StringComparer.Ordinal;
     private static bool PathEquals(string left, string right) =>
-        (OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
-        .Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)), Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)));
+        PathComparer.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)));
 
     private static bool IsInside(string parent, string candidate)
     {

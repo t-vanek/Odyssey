@@ -31,15 +31,20 @@ public sealed class ScanCoordinator(
     public async Task<ScanSession> ScanAsync(
         ScanTarget target,
         IProgress<ScanProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? resumedFromScanId = null)
     {
         if (cancellationToken.IsCancellationRequested)
         {
             var now = DateTimeOffset.UtcNow;
             var cancelled = new ScanSession
             {
-                Id = Guid.NewGuid(), TargetId = target.Id, StartedAt = now,
-                CompletedAt = now, Status = ScanStatus.Cancelled
+                Id = Guid.NewGuid(),
+                TargetId = target.Id,
+                StartedAt = now,
+                CompletedAt = now,
+                Status = ScanStatus.Cancelled,
+                ResumedFromScanId = resumedFromScanId
             };
             await store.StartScanAsync(cancelled, CancellationToken.None).ConfigureAwait(false);
             await store.CompleteScanAsync(cancelled.Id, ScanStatus.Cancelled, now, CancellationToken.None).ConfigureAwait(false);
@@ -48,17 +53,25 @@ public sealed class ScanCoordinator(
         }
         var gate = TargetGates.GetOrAdd(target.Id, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try { return await ScanCoreAsync(target, progress, cancellationToken).ConfigureAwait(false); }
+        try { return await ScanCoreAsync(target, progress, cancellationToken, resumedFromScanId).ConfigureAwait(false); }
         finally { gate.Release(); }
     }
 
     private async Task<ScanSession> ScanCoreAsync(
         ScanTarget target,
         IProgress<ScanProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? resumedFromScanId)
     {
         var started = DateTimeOffset.UtcNow;
-        var scan = new ScanSession { Id = Guid.NewGuid(), TargetId = target.Id, StartedAt = started, Status = ScanStatus.Running };
+        var scan = new ScanSession
+        {
+            Id = Guid.NewGuid(),
+            TargetId = target.Id,
+            StartedAt = started,
+            Status = ScanStatus.Running,
+            ResumedFromScanId = resumedFromScanId
+        };
         // Persist the attempted scan even when cancellation was requested immediately,
         // so the investigation history remains complete.
         await store.StartScanAsync(scan, CancellationToken.None).ConfigureAwait(false);
@@ -83,6 +96,10 @@ public sealed class ScanCoordinator(
             SingleReader = true
         });
 
+        ScanProgress SnapshotProgress() => new(
+            Interlocked.Read(ref files), Interlocked.Read(ref directories), Interlocked.Read(ref indexed),
+            Interlocked.Read(ref bytes), Interlocked.Read(ref errors), stopwatch.Elapsed, Volatile.Read(ref currentPath));
+
         void Report(bool force = false)
         {
             if (progress is null) return;
@@ -90,10 +107,10 @@ public sealed class ScanCoordinator(
             var previous = Interlocked.Read(ref lastProgressTick);
             if (!force && now - previous < 150) return;
             if (!force && Interlocked.CompareExchange(ref lastProgressTick, now, previous) != previous) return;
-            progress.Report(new ScanProgress(
-                Interlocked.Read(ref files), Interlocked.Read(ref directories), Interlocked.Read(ref indexed),
-                Interlocked.Read(ref bytes), Interlocked.Read(ref errors), stopwatch.Elapsed, Volatile.Read(ref currentPath)));
+            progress.Report(SnapshotProgress());
         }
+
+        await store.SaveScanCheckpointAsync(scan.Id, SnapshotProgress(), CancellationToken.None).ConfigureAwait(false);
 
         var producer = Task.Run(async () =>
         {
@@ -161,12 +178,14 @@ public sealed class ScanCoordinator(
                     if (entries.Count + scanErrors.Count < options.EffectiveBatchSize) continue;
                     await FlushAsync(entries, scanErrors, scan.Id, pipelineToken).ConfigureAwait(false);
                     Interlocked.Add(ref indexed, entries.Count);
+                    await store.SaveScanCheckpointAsync(scan.Id, SnapshotProgress(), pipelineToken).ConfigureAwait(false);
                     entries.Clear();
                     scanErrors.Clear();
                     Report();
                 }
                 await FlushAsync(entries, scanErrors, scan.Id, pipelineToken).ConfigureAwait(false);
                 Interlocked.Add(ref indexed, entries.Count);
+                await store.SaveScanCheckpointAsync(scan.Id, SnapshotProgress(), pipelineToken).ConfigureAwait(false);
             }
             catch
             {
@@ -195,6 +214,7 @@ public sealed class ScanCoordinator(
 
         stopwatch.Stop();
         var completed = DateTimeOffset.UtcNow;
+        await store.SaveScanCheckpointAsync(scan.Id, SnapshotProgress(), CancellationToken.None).ConfigureAwait(false);
         await store.CompleteScanAsync(scan.Id, status, completed, CancellationToken.None).ConfigureAwait(false);
         Report(true);
         logger.LogInformation("Scan {ScanId} finished with {Status} in {Elapsed}; {Entries} entries indexed and {Errors} recoverable errors",

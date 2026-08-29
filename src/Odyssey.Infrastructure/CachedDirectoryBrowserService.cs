@@ -3,7 +3,7 @@ using Odyssey.Core;
 
 namespace Odyssey.Infrastructure;
 
-public sealed class CachedDirectoryBrowserService : IDirectoryBrowserService
+public sealed class CachedDirectoryBrowserService : IDirectoryBrowserService, IFilteredDirectoryBrowserService
 {
     private readonly object _sync = new();
     private readonly Dictionary<string, CacheEntry> _cache = new(PathComparer);
@@ -18,6 +18,27 @@ public sealed class CachedDirectoryBrowserService : IDirectoryBrowserService
 
     public async Task<DirectoryPage> GetPageAsync(
         string path, int offset, int pageSize, CancellationToken cancellationToken = default)
+        => await GetPageCoreAsync(path, offset, pageSize, null, cancellationToken).ConfigureAwait(false);
+
+    public async Task<DirectoryPage> GetFilteredPageAsync(
+        string path,
+        int offset,
+        int pageSize,
+        DirectoryNameFilter filter,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        if (!FileNamePatternMatcher.TryCreate(filter, out _, out var error))
+            throw new ArgumentException(error, nameof(filter));
+        return await GetPageCoreAsync(path, offset, pageSize, filter, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<DirectoryPage> GetPageCoreAsync(
+        string path,
+        int offset,
+        int pageSize,
+        DirectoryNameFilter? filter,
+        CancellationToken cancellationToken)
     {
         if (offset < 0) throw new ArgumentOutOfRangeException(nameof(offset));
         if (pageSize is < 1 or > 5000) throw new ArgumentOutOfRangeException(nameof(pageSize));
@@ -29,8 +50,24 @@ public sealed class CachedDirectoryBrowserService : IDirectoryBrowserService
             Put(fullPath, snapshot);
         }
         cancellationToken.ThrowIfCancellationRequested();
+        if (filter is not null && !string.IsNullOrEmpty(filter.Pattern))
+        {
+            FileNamePatternMatcher.TryCreate(filter, out var matcher, out _);
+            var filteredItems = new List<DirectoryItem>(pageSize);
+            var totalMatches = 0;
+            foreach (var item in snapshot.Items)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!matcher(item.Name)) continue;
+                if (totalMatches >= offset && filteredItems.Count < pageSize) filteredItems.Add(item);
+                totalMatches++;
+            }
+            return new DirectoryPage(filteredItems, offset, totalMatches,
+                offset + filteredItems.Count < totalMatches);
+        }
         var items = snapshot.Items.Skip(offset).Take(pageSize).ToArray();
-        return new DirectoryPage(items, offset, snapshot.Items.Count, offset + items.Length < snapshot.Items.Count);
+        return new DirectoryPage(items, offset, snapshot.Items.Count,
+            offset + items.Length < snapshot.Items.Count);
     }
 
     public void Invalidate(string path)
@@ -90,7 +127,9 @@ public sealed class CachedDirectoryBrowserService : IDirectoryBrowserService
     {
         var directory = new DirectoryInfo(path);
         if (!directory.Exists) throw new DirectoryNotFoundException(path);
-        var fileSystemItems = directory.EnumerateFileSystemInfos().ToArray();
+        var fileSystemItems = directory.EnumerateFileSystemInfos()
+            .Where(item => !TransferArtifactNames.IsInternal(item.Name))
+            .ToArray();
         var items = new ConcurrentBag<DirectoryItem>();
         Parallel.ForEach(fileSystemItems, new ParallelOptions
         {

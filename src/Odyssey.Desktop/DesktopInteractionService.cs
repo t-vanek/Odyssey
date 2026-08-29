@@ -14,6 +14,7 @@ public interface IDesktopInteractionService
     Task<bool> ConfirmAsync(string title, string message, string confirmText);
     Task CopyTextAsync(string text);
     Task OpenAsync(string path);
+    Task EditAsync(string path);
     Task OpenContainingFolderAsync(string path);
 }
 
@@ -101,6 +102,23 @@ public sealed class DesktopInteractionService(LocalizationService localization) 
     {
         if (!File.Exists(path) && !Directory.Exists(path)) throw new FileNotFoundException(localization["EntryUnavailable"], path);
         Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        return Task.CompletedTask;
+    }
+
+    public Task EditAsync(string path)
+    {
+        if (!File.Exists(path)) throw new FileNotFoundException(localization["EntryUnavailable"], path);
+        var startInfo = new ProcessStartInfo(path) { UseShellExecute = true };
+        if (OperatingSystem.IsWindows()) startInfo.Verb = "edit";
+        try
+        {
+            Process.Start(startInfo);
+        }
+        catch (System.ComponentModel.Win32Exception) when (OperatingSystem.IsWindows())
+        {
+            // Some Windows file associations expose only the default open verb.
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        }
         return Task.CompletedTask;
     }
 

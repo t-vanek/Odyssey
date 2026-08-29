@@ -1,8 +1,10 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Odyssey.Agent/Odyssey.Agent.csproj" />
     <Project Path="src/Odyssey.Core/Odyssey.Core.csproj" />
     <Project Path="src/Odyssey.Desktop/Odyssey.Desktop.csproj" />
     <Project Path="src/Odyssey.Infrastructure/Odyssey.Infrastructure.csproj" />
+    <Project Path="src/Odyssey.Mcp/Odyssey.Mcp.csproj" />
     <Project Path="src/Odyssey.Search/Odyssey.Search.csproj" />
     <Project Path="src/Odyssey.Updater/Odyssey.Updater.csproj" />
   </Folder>

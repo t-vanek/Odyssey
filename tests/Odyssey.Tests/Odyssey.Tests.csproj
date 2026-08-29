@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Odyssey.Agent\Odyssey.Agent.csproj" />
     <ProjectReference Include="..\..\src\Odyssey.Core\Odyssey.Core.csproj" />
     <ProjectReference Include="..\..\src\Odyssey.Desktop\Odyssey.Desktop.csproj" />
     <ProjectReference Include="..\..\src\Odyssey.Infrastructure\Odyssey.Infrastructure.csproj" />

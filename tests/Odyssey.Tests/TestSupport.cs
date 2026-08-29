@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Odyssey.Core;
 using Odyssey.Infrastructure;
@@ -24,7 +23,7 @@ internal sealed class TestEnvironment : IAsyncDisposable
     {
         var root = Path.Combine(Path.GetTempPath(), $"odyssey-tests-{Guid.NewGuid():N}");
         var storage = new ApplicationStorage(Path.Combine(root, "app"));
-        var connections = new SqliteConnectionFactory(storage);
+        var connections = new SqliteConnectionFactory(storage, pooling: false);
         var store = new SqliteOdysseyStore(connections, NullLogger<SqliteOdysseyStore>.Instance);
         var search = new SqliteSearchService(connections, NullLogger<SqliteSearchService>.Instance);
         await store.InitializeAsync();
@@ -61,7 +60,6 @@ internal sealed class TestEnvironment : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        SqliteConnection.ClearAllPools();
         await Task.Yield();
         if (Directory.Exists(Root)) Directory.Delete(Root, true);
     }

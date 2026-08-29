@@ -56,20 +56,31 @@ public sealed class BackgroundAutomationService : IBackgroundAutomationService, 
 
     public event EventHandler<BackgroundAutomationStatus>? StatusChanged;
 
-    public Task StartAsync(Guid sessionId, IReadOnlyCollection<ScanTarget> targets, CancellationToken cancellationToken = default)
+    public async Task StartAsync(Guid sessionId, IReadOnlyCollection<ScanTarget> targets, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (_lifetime is not null) return Task.CompletedTask;
+        if (_lifetime is not null) return;
         _sessionId = sessionId;
         _lifetime = new CancellationTokenSource();
         _worker = RunWorkerAsync(_lifetime.Token);
         _periodic = RunPeriodicAsync(_lifetime.Token);
         UpdateTargets(targets);
+        var recoveries = (await _store.RecoverInterruptedScansAsync(sessionId, cancellationToken).ConfigureAwait(false))
+            .GroupBy(item => item.TargetId)
+            .Select(group => group.MaxBy(item => item.UpdatedAt)!)
+            .ToArray();
+        var recoveringTargets = recoveries.Select(item => item.TargetId).ToHashSet();
+        foreach (var recovery in recoveries)
+            Enqueue(new BackgroundJob(BackgroundJobKind.Scan, sessionId, recovery.TargetId, recovery.ScanId), priority: 0);
         Enqueue(new BackgroundJob(BackgroundJobKind.Content, sessionId), priority: 2);
         Enqueue(new BackgroundJob(BackgroundJobKind.Maintenance, sessionId), priority: 3);
-        foreach (var target in targets) ScheduleInitialValidation(target, _lifetime.Token);
-        Publish(BackgroundActivity.Watching, completed: targets.Count);
-        return Task.CompletedTask;
+        foreach (var target in targets)
+            if (!recoveringTargets.Contains(target.Id)) ScheduleInitialValidation(target, _lifetime.Token);
+        if (recoveries.Length > 0)
+            Publish(BackgroundActivity.ResumingScan, targets.FirstOrDefault(item => item.Id == recoveries[0].TargetId)?.RootPath,
+                detail: recoveries[0].Checkpoint.CurrentPath);
+        else
+            Publish(BackgroundActivity.Watching, completed: targets.Count);
     }
 
     public void UpdateTargets(IReadOnlyCollection<ScanTarget> targets)
@@ -259,8 +270,9 @@ public sealed class BackgroundAutomationService : IBackgroundAutomationService, 
             await ScheduleAsync(job, 3, _options.RetryDelay, token).ConfigureAwait(false);
             return;
         }
-        Publish(BackgroundActivity.ScanningChanges, target.RootPath);
-        var result = await _scanner.ScanAsync(target, null, token).ConfigureAwait(false);
+        Publish(job.ResumeFromScanId is null ? BackgroundActivity.ScanningChanges : BackgroundActivity.ResumingScan,
+            target.RootPath);
+        var result = await _scanner.ScanAsync(target, null, token, job.ResumeFromScanId).ConfigureAwait(false);
         if (result.Status == ScanStatus.Completed)
         {
             lock (_sync) _verifiedTargets.Add(target.Id);
@@ -268,7 +280,7 @@ public sealed class BackgroundAutomationService : IBackgroundAutomationService, 
             Publish(BackgroundActivity.Watching, target.RootPath);
         }
         else if (result.Status == ScanStatus.Failed)
-            _ = ScheduleAsync(job, 2, _options.RetryDelay, token);
+            _ = ScheduleAsync(job with { ResumeFromScanId = result.Id }, 2, _options.RetryDelay, token);
     }
 
     private async Task RunContentAsync(BackgroundJob job, CancellationToken token)
@@ -366,7 +378,11 @@ public sealed class BackgroundAutomationService : IBackgroundAutomationService, 
         StatusChanged?.Invoke(this, new BackgroundAutomationStatus(activity, path, completed, detail));
 
     private enum BackgroundJobKind { Scan, Content, Maintenance }
-    private readonly record struct BackgroundJob(BackgroundJobKind Kind, Guid SessionId, Guid TargetId = default)
+    private readonly record struct BackgroundJob(
+        BackgroundJobKind Kind,
+        Guid SessionId,
+        Guid TargetId = default,
+        Guid? ResumeFromScanId = null)
     {
         public string Key => $"{Kind}:{(Kind == BackgroundJobKind.Scan ? TargetId : SessionId)}";
     }
