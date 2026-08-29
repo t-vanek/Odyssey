@@ -54,6 +54,7 @@ public sealed class FileTransferQueueService : IFileTransferQueueService
         if (_archiveMutations is IArchiveRecoveryService recovery)
             _ = await recovery.RecoverAsync(cancellationToken).ConfigureAwait(false);
         CleanupStaleArchiveRelays();
+        await RecoverTemporaryQueueAsync(cancellationToken).ConfigureAwait(false);
 
         var loaded = await LoadAsync(cancellationToken);
         lock (_sync)
@@ -318,14 +319,79 @@ public sealed class FileTransferQueueService : IFileTransferQueueService
     {
         try
         {
-            if (!File.Exists(_queuePath)) return [];
-            await using var stream = new FileStream(_queuePath, FileMode.Open, FileAccess.Read, FileShare.Read,
-                64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
-            return await JsonSerializer.DeserializeAsync<List<FileTransferJob>>(stream, JsonOptions, cancellationToken) ?? [];
+            return await ReadQueueFileAsync(_queuePath, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (JsonException)
+        {
+            QuarantineInvalidQueue(_queuePath, "transfer-queue.corrupt");
+            return [];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return [];
+        }
+    }
+
+    private async Task RecoverTemporaryQueueAsync(CancellationToken cancellationToken)
+    {
+        var temporaryPath = _queuePath + ".tmp";
+        if (!File.Exists(temporaryPath)) return;
+        try
+        {
+            _ = await ReadQueueFileAsync(temporaryPath, cancellationToken).ConfigureAwait(false);
+            await PublishQueueFileAsync(temporaryPath, cancellationToken).ConfigureAwait(false);
+        }
+        catch (JsonException)
+        {
+            QuarantineInvalidQueue(temporaryPath, "transfer-queue.tmp.corrupt");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // A locked temporary snapshot can be reconsidered on the next startup.
+        }
+    }
+
+    private static async Task<IReadOnlyList<FileTransferJob>> ReadQueueFileAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(path)) return [];
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+            64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        var loaded = await JsonSerializer.DeserializeAsync<List<FileTransferJob?>>(stream, JsonOptions, cancellationToken)
+            .ConfigureAwait(false) ?? [];
+        var identities = new HashSet<Guid>();
+        foreach (var item in loaded)
+        {
+            if (item is null)
+                throw new JsonException("The persisted transfer queue contains an empty job.");
+            if (item.Id == Guid.Empty || !identities.Add(item.Id) || !Enum.IsDefined(item.State)
+                || item.Request is null
+                || !Enum.IsDefined(item.Request.Kind)
+                || !Enum.IsDefined(item.Request.ConflictPolicy)
+                || !Enum.IsDefined(item.Request.SourceEndpoint)
+                || !Enum.IsDefined(item.Request.DestinationEndpoint))
+                throw new JsonException("The persisted transfer queue contains an invalid job identity, state, or request.");
+            try { ValidateRequest(item.Request); }
+            catch (ArgumentException ex) { throw new JsonException("The persisted transfer queue contains an invalid request.", ex); }
+        }
+        return loaded.Select(item => item!).ToArray();
+    }
+
+    private static void QuarantineInvalidQueue(string path, string prefix)
+    {
+        try
+        {
+            if (!File.Exists(path)) return;
+            var directory = Path.GetDirectoryName(path)!;
+            var quarantinePath = Path.Combine(directory,
+                $"{prefix}-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}.json");
+            File.Move(path, quarantinePath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Starting Odyssey is more important than preserving a diagnostic copy
+            // when the application-data directory itself cannot be modified.
         }
     }
 

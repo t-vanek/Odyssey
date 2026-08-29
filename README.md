@@ -23,7 +23,7 @@ Open `Odyssey.slnx` directly in JetBrains Rider. The executable startup project 
 
 ### Product stability scenarios
 
-The `Stability` test category exercises complete user journeys against the real temporary filesystem, SQLite/FTS index, scanner, background content indexer, search service, and guarded file operations. It covers a service restart with preserved content search, a 1,250-file paged catalogue, concurrent searches during a changing rescan, a temporarily unavailable drive, and a copy/rename/undo workflow that keeps the index synchronized.
+The `Stability` test category exercises complete user journeys against the real temporary filesystem, SQLite/FTS index, scanner, PDF/Office/archive content extractors, search service, persistent transfer queue, and guarded file operations. It covers restart persistence, interrupted-scan continuation, large paged catalogues, differential verification of combined search filters against filesystem truth, version-safe document-content retrieval with corrupt-file isolation, concurrent edits during extraction, concurrent search and scanning, unavailable drives, mid-scan and transfer cancellation, Unicode and link handling, transient database contention, an actual `SQLITE_FULL` condition and recovery, atomic queue and owned-artifact recovery, corrupt-state quarantine, event bursts, transfer restart, and file operations that keep the index synchronized.
 
 Run the scenarios locally with:
 

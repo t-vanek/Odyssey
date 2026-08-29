@@ -316,6 +316,14 @@ public sealed class BackgroundAutomationService : IBackgroundAutomationService, 
                     return;
                 }
                 var extracted = await _extractor.ExtractAsync(candidate.FullPath, cancellation).ConfigureAwait(false);
+                info.Refresh();
+                if (!info.Exists || info.Length != candidate.Size ||
+                    (indexedModified is not null && info.LastWriteTimeUtc != indexedModified.Value))
+                {
+                    var target = FindTarget(candidate.FullPath);
+                    if (target is not null) dirtyTargets.TryAdd(target.Id, 0);
+                    return;
+                }
                 updates.Add(new ContentIndexUpdate(candidate.FileId, candidate.ModifiedAt, extracted?.Text ?? string.Empty, null));
             }
             catch (Exception ex) when (PortableFileSystemScanner.IsRecoverable(ex) || ex is InvalidDataException or XmlException)

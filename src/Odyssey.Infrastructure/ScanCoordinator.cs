@@ -214,8 +214,25 @@ public sealed class ScanCoordinator(
 
         stopwatch.Stop();
         var completed = DateTimeOffset.UtcNow;
-        await store.SaveScanCheckpointAsync(scan.Id, SnapshotProgress(), CancellationToken.None).ConfigureAwait(false);
-        await store.CompleteScanAsync(scan.Id, status, completed, CancellationToken.None).ConfigureAwait(false);
+        try
+        {
+            await store.SaveScanCheckpointAsync(scan.Id, SnapshotProgress(), CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            status = ScanStatus.Failed;
+            logger.LogError(ex, "Could not persist the final checkpoint for scan {ScanId}", scan.Id);
+        }
+
+        try
+        {
+            await store.CompleteScanAsync(scan.Id, status, completed, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            status = ScanStatus.Failed;
+            logger.LogError(ex, "Could not persist the final status for scan {ScanId}; startup recovery will reconcile it", scan.Id);
+        }
         Report(true);
         logger.LogInformation("Scan {ScanId} finished with {Status} in {Elapsed}; {Entries} entries indexed and {Errors} recoverable errors",
             scan.Id, status, stopwatch.Elapsed, indexed, errors);

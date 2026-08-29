@@ -54,6 +54,8 @@ public sealed class SqliteOdysseyStore(
     SqliteConnectionFactory connections,
     ILogger<SqliteOdysseyStore> logger) : IOdysseyStore
 {
+    private static readonly ExtensionFileClassifier RestoredFileClassifier = new();
+
     public string DatabasePath => connections.DatabasePath;
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -504,14 +506,82 @@ public sealed class SqliteOdysseyStore(
         switch (operation.Kind)
         {
             case FileOperationKind.Copy when operation.DestinationPath is not null:
-                await MarkPathMissingAsync(connection, transaction, operation.DestinationPath, targets, token).ConfigureAwait(false);
+                if (operation.ReplacedItemBackupPath is not null && EntryExists(operation.DestinationPath))
+                    await RefreshRestoredPathAsync(connection, transaction, operation.DestinationPath, targets, token).ConfigureAwait(false);
+                else
+                    await MarkPathMissingAsync(connection, transaction, operation.DestinationPath, targets, token).ConfigureAwait(false);
                 break;
             case FileOperationKind.Move or FileOperationKind.Rename when operation.DestinationPath is not null:
                 await MoveIndexedTreeAsync(connection, transaction, operation.DestinationPath, operation.SourcePath, targets, token).ConfigureAwait(false);
+                if (operation.ReplacedItemBackupPath is not null && EntryExists(operation.DestinationPath))
+                    await RefreshRestoredPathAsync(connection, transaction, operation.DestinationPath, targets, token).ConfigureAwait(false);
                 break;
             case FileOperationKind.CreateDirectory:
                 await MarkPathMissingAsync(connection, transaction, operation.SourcePath, targets, token).ConfigureAwait(false);
                 break;
+        }
+    }
+
+    private static async Task RefreshRestoredPathAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string path,
+        IReadOnlyList<ScanTarget> targets,
+        CancellationToken token)
+    {
+        var target = FindTarget(path, targets);
+        if (target is null || !EntryExists(path)) return;
+        var scanId = await GetLatestScanIdAsync(connection, transaction, target.Id, token).ConfigureAwait(false);
+        if (scanId is null) return;
+        var fullPath = Path.GetFullPath(path);
+        await DeleteDestinationRowsAsync(connection, transaction, target.Id, fullPath, token).ConfigureAwait(false);
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO Files(
+                TargetId,Name,FullPath,ParentPath,Extension,EntryType,Category,
+                Size,CreatedAt,ModifiedAt,Fingerprint,LastSeenScanId,IsMissing)
+            VALUES(
+                $target,$name,$full,$parent,$extension,$type,$category,
+                $size,$created,$modified,$fingerprint,$scan,0);
+            """;
+        AddEntryParameters(command);
+        command.Prepare();
+
+        var pending = new Stack<FileSystemInfo>();
+        pending.Push(Directory.Exists(fullPath)
+            ? new DirectoryInfo(fullPath)
+            : new FileInfo(fullPath));
+        while (pending.Count > 0)
+        {
+            token.ThrowIfCancellationRequested();
+            var info = pending.Pop();
+            info.Refresh();
+            if (!info.Exists) continue;
+            var type = info.Attributes.HasFlag(FileAttributes.Directory)
+                ? FileEntryType.Directory
+                : FileEntryType.File;
+            var extension = type == FileEntryType.File ? Path.GetExtension(info.FullName) : null;
+            var entry = new FileEntry
+            {
+                TargetId = target.Id,
+                Name = info.Name,
+                FullPath = Path.GetFullPath(info.FullName),
+                ParentPath = Path.GetDirectoryName(Path.GetFullPath(info.FullName)) ?? string.Empty,
+                Extension = string.IsNullOrEmpty(extension) ? null : extension.ToLowerInvariant(),
+                Type = type,
+                Size = info is FileInfo file ? file.Length : null,
+                CreatedAt = ToNullableTimestamp(info.CreationTimeUtc),
+                ModifiedAt = ToNullableTimestamp(info.LastWriteTimeUtc),
+                Category = RestoredFileClassifier.Classify(extension, type)
+            };
+            SetEntryParameters(command, entry, scanId.Value);
+            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+
+            if (info is not DirectoryInfo directory
+                || info.Attributes.HasFlag(FileAttributes.ReparsePoint)) continue;
+            foreach (var child in directory.EnumerateFileSystemInfos()) pending.Push(child);
         }
     }
 
@@ -874,6 +944,9 @@ public sealed class SqliteOdysseyStore(
     }
 
     private static string[] DeserializeArray(string value) => JsonSerializer.Deserialize<string[]>(value) ?? [];
+    private static bool EntryExists(string path) => File.Exists(path) || Directory.Exists(path);
+    private static DateTimeOffset? ToNullableTimestamp(DateTime value) =>
+        value == DateTime.MinValue ? null : new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Utc));
     private static bool IsProcessAlive(int processId)
     {
         try

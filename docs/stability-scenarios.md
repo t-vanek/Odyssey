@@ -11,6 +11,26 @@ This suite validates behavior visible to a user, not isolated implementation met
 | STAB-03 | Files are added, changed, and deleted while several searches run during a rescan. | No query or scan fails; the final index contains every known record and distinguishes 25 missing files from 515 active files. |
 | STAB-04 | A previously indexed removable location temporarily disappears. | The scan reports the inaccessible path without converting known work into false deletions. |
 | STAB-05 | The user copies, renames, and undoes a file operation, then returns to read-only mode. | The filesystem and search index agree after every step, undo affects the newest operation, and read-only mode blocks the next write. |
+| STAB-06 | The user cancels a large verified copy after transfer begins. | The source SHA-256 is unchanged, no final or partial destination remains, and no completed operation is recorded. |
+| STAB-07 | A catalogue contains Czech text, emoji, and a directory link pointing back into the target. | Unicode names are searchable, the link itself is visible, and the scanner never follows the loop. |
+| STAB-08 | Two components request a scan of the same target concurrently. | The scans are serialized, both complete, and the index remains idempotent. |
+| STAB-09 | Another connection briefly owns the SQLite write lock. | Search remains responsive, the write waits within the busy timeout, and commits after the lock is released. |
+| STAB-10 | Odyssey restarts with a persisted transfer marked as running. | The job is safely queued again, completes as attempt two, verifies byte-for-byte, and leaves no transfer artifact. |
+| STAB-11 | Copy or move replaces an indexed customer file and the user chooses Undo. | The original bytes, size, active index entry, and moved source are restored immediately. |
+| STAB-12 | A watched folder receives 120 creates plus rapid renames and writes. | Events are debounced into bounded verification scans and the index converges without duplicate active paths. |
+| STAB-13 | The user cancels a real scan after several batches have already reached the index. | Previously known work is never marked missing, the scan finishes as cancelled without hanging, and the next scan converges to all 400 active files. |
+| STAB-14 | SQLite reaches its real page limit while 900 new files are being indexed. | The scan fails without escaping into the application, the earlier result remains active, and a scan after space returns reaches the complete duplicate-free state. |
+| STAB-15 | Odyssey restarts after a process stops with a running scan and a durable partial checkpoint. | The old scan becomes interrupted exactly once, one linked verification scan completes, and all 300 files are active without duplicates. |
+| STAB-16 | The persisted transfer queue contains malformed JSON or a semantically empty job. | Startup continues with an empty valid queue and preserves the invalid bytes in a uniquely named diagnostic quarantine file. |
+| STAB-17 | The process stops after a complete newer `transfer-queue.json.tmp` is flushed but before publication. | Startup promotes the complete snapshot, resumes its running job as attempt two, and removes the temporary file. |
+| STAB-18 | The process stops while writing a truncated temporary queue snapshot and an older published queue still exists. | The valid published jobs remain authoritative and the incomplete temporary bytes are quarantined for diagnosis. |
+| STAB-19 | A process stops after Odyssey registered and partly wrote a destination artifact; another similarly named file is present but unregistered. | Restart deletes only the exact journal-owned artifact and leaves the unregistered file byte-for-byte intact. |
+| STAB-20 | A manipulated artifact journal points at an ordinary user document instead of its identity-bound temporary path. | The journal is quarantined and the user document is never deleted or modified. |
+| STAB-21 | Another Odyssey service instance starts while a journal-owned transfer is active in a live process. | The active artifact and its ownership record remain untouched; only artifacts whose owner process ended are recoverable. |
+| STAB-22 | Two independent operation services copy and verify large files concurrently while sharing one application-data directory. | Both destinations verify, neither service loses the other's ownership record, no partial artifact remains, and the journal ends empty. |
+| STAB-23 | A real two-target catalogue contains 760 files with controlled Unicode names, extensions, sizes, and timestamps. | Combined FTS/target/category/extension/size/date filters exactly match independent filesystem truth across pages, and catalogue ordering is complete and deterministic. |
+| STAB-24 | The user remembers only phrases inside real PDF, DOCX, XLSX and PPTX files or a filename inside ZIP; another PDF is corrupt. | Every valid phrase finds the exact source through content evidence, the corrupt file records an isolated error but remains findable by name, and no source hash or timestamp changes. |
+| STAB-25 | A document is saved after its extraction candidate is selected but before content reading begins. | No content is attached to stale metadata; Odyssey schedules a verification scan, extracts the new version, removes the obsolete phrase, and publishes matching size and timestamp. |
 
 Run once:
 

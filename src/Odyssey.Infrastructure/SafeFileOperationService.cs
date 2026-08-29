@@ -11,6 +11,7 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
     private const int BufferSize = 1024 * 1024;
     private readonly List<FileOperationRecord> _history = [];
     private readonly SemaphoreSlim _operationGate = new(1, 1);
+    private readonly TransferArtifactJournal _transferArtifacts = new(storage);
 
     public FileAccessMode AccessMode { get; set; } = FileAccessMode.ReadOnly;
     public IReadOnlyList<FileOperationRecord> History
@@ -192,7 +193,9 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
             }
 
             var move = request.Kind == FileOperationKind.Move;
-            var temporaryDestination = destination + $".odyssey-part-{Guid.NewGuid():N}";
+            var artifactId = Guid.NewGuid();
+            var temporaryDestination = destination + $".odyssey-part-{artifactId:N}";
+            var artifactRegistered = false;
 
             try
             {
@@ -214,6 +217,9 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
                     }
                 }
 
+                await _transferArtifacts.RegisterAsync(
+                    artifactId, temporaryDestination, destination, cancellationToken).ConfigureAwait(false);
+                artifactRegistered = true;
                 var total = GetEntrySize(source);
                 long completed = 0;
                 var progressClock = Stopwatch.StartNew();
@@ -232,6 +238,8 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
                 if (!verified) throw new IOException("The copied data failed SHA-256 verification.");
                 MoveEntry(temporaryDestination, destination);
                 if (move) DeleteEntry(source);
+                await _transferArtifacts.TryCompleteAsync(artifactId).ConfigureAwait(false);
+                artifactRegistered = false;
 
                 var record = AddRecord(request.Kind, source, destination, canUndo: true, replacedItemBackup);
                 return new FileTransferOutcome(record, destination, Skipped: false, Verified: request.VerifyAfterCopy);
@@ -239,6 +247,8 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
             catch
             {
                 TryDeleteEntry(temporaryDestination);
+                if (artifactRegistered && !EntryExists(temporaryDestination))
+                    await _transferArtifacts.TryCompleteAsync(artifactId).ConfigureAwait(false);
                 if (replacedItemBackup is not null && EntryExists(replacedItemBackup) && !EntryExists(destination))
                     MoveEntry(replacedItemBackup, destination);
                 throw;
