@@ -72,6 +72,18 @@ public sealed class FilePaneTests : IDisposable
     }
 
     [Fact]
+    public void EmptyFolder_ExposesCalmEmptyPresentationState()
+    {
+        Directory.CreateDirectory(_root);
+        var pane = new FilePaneViewModel(new CachedDirectoryBrowserService()) { SelectedTarget = Target(_root) };
+        WaitForLoad(pane);
+
+        Assert.True(pane.ShowEmptyState);
+        Assert.False(pane.ShowInitialLoading);
+        Assert.False(pane.ShowErrorState);
+    }
+
+    [Fact]
     public async Task Pane_LoadsLargeDirectoryInBoundedPages()
     {
         Directory.CreateDirectory(_root);

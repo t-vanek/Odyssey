@@ -184,14 +184,12 @@ public sealed partial class SqliteSearchService(
     {
         var query = CollapseWhitespace(request.Query);
         var normalized = query.ToLowerInvariant();
-        var terms = Tokenize(query);
-        if (normalized.Length < 2 || terms.Count == 0) return [];
+        if (normalized.Length < 2) return [];
 
         var limit = Math.Clamp(request.Limit, 1, 12);
         var session = request.SessionId?.ToString() ?? string.Empty;
         var suggestions = new List<SearchSuggestion>(limit);
         var seen = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase) { query };
-        await using var connection = await connections.OpenAsync(cancellationToken).ConfigureAwait(false);
 
         if (_historyCache.TryGetValue(session, out var cachedHistory))
         {
@@ -205,6 +203,7 @@ public sealed partial class SqliteSearchService(
         }
         else
         {
+            await using var connection = await connections.OpenAsync(cancellationToken).ConfigureAwait(false);
             await using var history = connection.CreateCommand();
             history.CommandText = """
                 SELECT Query
@@ -223,33 +222,6 @@ public sealed partial class SqliteSearchService(
                 if (seen.Add(value)) suggestions.Add(new SearchSuggestion(value, SearchSuggestionKind.History));
             }
         }
-
-        if (suggestions.Count >= limit) return suggestions;
-        await using (var files = connection.CreateCommand())
-        {
-            var sql = new StringBuilder("""
-                SELECT f.Name, bm25(FilesFts, 9.0, 1.2, 0.7, 0.35) AS Rank
-                FROM FilesFts
-                JOIN Files f ON f.Id=FilesFts.rowid
-                JOIN ScanTargets t ON t.Id=f.TargetId
-                WHERE FilesFts MATCH $query AND f.EntryType=$entryType
-                """);
-            if (request.SessionId is not null) sql.Append(" AND t.SessionId=$session");
-            sql.Append(" ORDER BY Rank ASC, f.ModifiedAt DESC LIMIT $candidateLimit;");
-            files.CommandText = sql.ToString();
-            files.Parameters.AddWithValue("$query", BuildFtsQuery(terms));
-            files.Parameters.AddWithValue("$entryType", (int)FileEntryType.File);
-            files.Parameters.AddWithValue("$candidateLimit", Math.Min(60, (limit - suggestions.Count) * 8));
-            if (request.SessionId is not null) files.Parameters.AddWithValue("$session", session);
-            await using var reader = await files.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (suggestions.Count < limit && await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                var value = CreateSuggestionText(reader.GetString(0));
-                if (value.Length >= 2 && seen.Add(value))
-                    suggestions.Add(new SearchSuggestion(value, SearchSuggestionKind.FileName));
-            }
-        }
-
         return suggestions;
     }
 

@@ -73,6 +73,12 @@ public interface ISearchService
     Task RememberSearchAsync(string query, Guid? sessionId, CancellationToken cancellationToken = default);
 }
 
+public interface ISystemSearchHistoryService
+{
+    Task WarmupAsync(CancellationToken cancellationToken = default);
+    IReadOnlyList<string> Suggest(string query, int limit);
+}
+
 public interface IDuplicateAnalyzer
 {
     Task<IReadOnlyCollection<DuplicateGroup>> FindAsync(

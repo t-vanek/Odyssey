@@ -1,0 +1,219 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag, for example v1.2.3
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate version and tests
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Resolve version
+        id: version
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${REQUESTED_TAG:-${GITHUB_REF_NAME}}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must match vMAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out tagged source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.version.outputs.tag }}
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Odyssey.slnx
+
+      - name: Build
+        run: dotnet build Odyssey.slnx --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Test
+        run: dotnet test Odyssey.slnx --configuration Release --no-build --logger "trx;LogFileName=release-tests.trx" --results-directory TestResults
+
+      - name: Upload release test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-results
+          path: TestResults/*.trx
+          retention-days: 30
+
+  package:
+    name: Package ${{ matrix.rid }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            archive: Odyssey-win-x64.zip
+            updater: Odyssey.Updater.exe
+          - os: ubuntu-latest
+            rid: linux-x64
+            archive: Odyssey-linux-x64.tar.gz
+            updater: Odyssey.Updater
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Publish Odyssey
+        shell: bash
+        run: |
+          dotnet publish src/Odyssey.Desktop/Odyssey.Desktop.csproj \
+            --configuration Release --runtime "${{ matrix.rid }}" --self-contained true \
+            --output publish/app \
+            -p:Version="${{ needs.validate.outputs.version }}" \
+            -p:ContinuousIntegrationBuild=true \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:PublishReadyToRun=true \
+            -p:DebugType=embedded
+
+      - name: Publish update helper
+        shell: bash
+        run: |
+          dotnet publish src/Odyssey.Updater/Odyssey.Updater.csproj \
+            --configuration Release --runtime "${{ matrix.rid }}" --self-contained true \
+            --output publish/updater \
+            -p:Version="${{ needs.validate.outputs.version }}" \
+            -p:ContinuousIntegrationBuild=true \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:PublishReadyToRun=true \
+            -p:DebugType=embedded
+          cp "publish/updater/${{ matrix.updater }}" "publish/app/${{ matrix.updater }}"
+          rm -f publish/app/*.pdb
+
+      - name: Create Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path publish/app/* -DestinationPath "${{ matrix.archive }}" -CompressionLevel Optimal
+
+      - name: Create Linux archive
+        if: runner.os == 'Linux'
+        shell: bash
+        run: tar -C publish/app -czf "${{ matrix.archive }}" .
+
+      - name: Upload platform package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.rid }}
+          path: ${{ matrix.archive }}
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish GitHub release
+    needs: [validate, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+
+      - name: Download platform packages
+        uses: actions/download-artifact@v5
+        with:
+          pattern: package-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums and update manifest
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          cd dist
+          windows_sha=$(sha256sum Odyssey-win-x64.zip | cut -d' ' -f1)
+          linux_sha=$(sha256sum Odyssey-linux-x64.tar.gz | cut -d' ' -f1)
+          sha256sum Odyssey-win-x64.zip Odyssey-linux-x64.tar.gz > checksums.txt
+          base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
+          jq -n \
+            --arg version "$RELEASE_VERSION" \
+            --arg tag "$RELEASE_TAG" \
+            --arg publishedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg releaseNotesUrl "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" \
+            --arg winUrl "$base_url/Odyssey-win-x64.zip" \
+            --arg winSha "$windows_sha" \
+            --arg linuxUrl "$base_url/Odyssey-linux-x64.tar.gz" \
+            --arg linuxSha "$linux_sha" \
+            '{
+              schemaVersion: 1,
+              version: $version,
+              tag: $tag,
+              publishedAt: $publishedAt,
+              releaseNotesUrl: $releaseNotesUrl,
+              assets: {
+                "win-x64": {
+                  fileName: "Odyssey-win-x64.zip",
+                  downloadUrl: $winUrl,
+                  sha256: $winSha,
+                  format: "zip"
+                },
+                "linux-x64": {
+                  fileName: "Odyssey-linux-x64.tar.gz",
+                  downloadUrl: $linuxUrl,
+                  sha256: $linuxSha,
+                  format: "tar.gz"
+                }
+              }
+            }' > update-manifest.json
+
+      - name: Create draft release with all assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/* \
+            --verify-tag \
+            --draft \
+            --generate-notes \
+            --title "Odyssey $RELEASE_VERSION"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: gh release edit "$RELEASE_TAG" --draft=false

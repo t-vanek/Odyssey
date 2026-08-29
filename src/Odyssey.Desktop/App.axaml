@@ -2,6 +2,28 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="Odyssey.Desktop.App"
              RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <!-- Compact, scale-independent Odyssey icon set. All geometries share a 24 × 24 canvas. -->
+    <StreamGeometry x:Key="IconSimple">M12 3L2 11H5V21H10V15H14V21H19V11H22ZM8 11L12 7.8L16 11V19H16V13H8V19H8Z</StreamGeometry>
+    <StreamGeometry x:Key="IconFiles">M3 5H10L12 7H21V19H3ZM5 9V17H19V9Z</StreamGeometry>
+    <StreamGeometry x:Key="IconSearch">M9.5 3A6.5 6.5 0 0 0 9.5 16C10.6 16 11.7 15.7 12.6 15.2L17.4 20L20 17.4L15.2 12.6C15.7 11.7 16 10.6 16 9.5A6.5 6.5 0 0 0 9.5 3M9.5 5A4.5 4.5 0 1 1 9.5 14A4.5 4.5 0 0 1 9.5 5Z</StreamGeometry>
+    <StreamGeometry x:Key="IconDrive">M3 5H21V19H3ZM5 7V14H19V7ZM16 16H19V18H16Z</StreamGeometry>
+    <StreamGeometry x:Key="IconAnalysis">M4 19H8V11H4ZM10 19H14V5H10ZM16 19H20V8H16Z</StreamGeometry>
+    <StreamGeometry x:Key="IconSettings">M3 5H10V3H12V5H21V7H12V9H10V7H3ZM3 11H6V9H8V11H21V13H8V15H6V13H3ZM3 17H14V15H16V17H21V19H16V21H14V19H3Z</StreamGeometry>
+    <StreamGeometry x:Key="IconScan">M11 2H13V5.1A7 7 0 0 1 18.9 11H22V13H18.9A7 7 0 0 1 13 18.9V22H11V18.9A7 7 0 0 1 5.1 13H2V11H5.1A7 7 0 0 1 11 5.1ZM12 7A5 5 0 1 0 12 17A5 5 0 0 0 12 7ZM12 10A2 2 0 1 1 12 14A2 2 0 0 1 12 10Z</StreamGeometry>
+    <StreamGeometry x:Key="IconUndo">M8 4V8C14.6 8 19 11.3 21 19C17.8 14.6 13.8 13 8 13V17L2 10.5Z</StreamGeometry>
+    <StreamGeometry x:Key="IconLock">M7 10V7A5 5 0 0 1 17 7V10H19V21H5V10ZM9 10H15V7A3 3 0 0 0 9 7ZM7 12V19H17V12Z</StreamGeometry>
+    <StreamGeometry x:Key="IconBack">M15.5 4L7 12L15.5 20L17 18.4L10.2 12L17 5.6Z</StreamGeometry>
+    <StreamGeometry x:Key="IconForward">M8.5 4L17 12L8.5 20L7 18.4L13.8 12L7 5.6Z</StreamGeometry>
+    <StreamGeometry x:Key="IconUp">M4 14L12 6L20 14L18.4 15.5L13 10.1V20H11V10.1L5.6 15.5Z</StreamGeometry>
+    <StreamGeometry x:Key="IconRefresh">M12 4A8 8 0 0 1 19 8V4H21V12H13V10H17.8A6 6 0 1 0 17 17.2L18.4 18.6A8 8 0 1 1 12 4Z</StreamGeometry>
+    <StreamGeometry x:Key="IconOpen">M4 4H12V6H6V18H18V12H20V20H4ZM14 4H20V10H18V7.4L10.7 14.7L9.3 13.3L16.6 6H14Z</StreamGeometry>
+    <StreamGeometry x:Key="IconCopy">M8 3H20V17H17V20H4V6H8ZM10 5V15H18V5ZM6 8V18H15V17H8V8Z</StreamGeometry>
+    <StreamGeometry x:Key="IconMove">M4 11H15.2L11 6.8L12.5 5.3L19.3 12L12.5 18.7L11 17.2L15.2 13H4Z</StreamGeometry>
+    <StreamGeometry x:Key="IconFolderAdd">M3 5H10L12 7H21V19H3ZM11 10V13H8V15H11V18H13V15H16V13H13V10Z</StreamGeometry>
+    <StreamGeometry x:Key="IconTrash">M8 3H16L17 5H21V7H19L18 21H6L5 7H3V5H7ZM7 7L8 19H16L17 7ZM9 9H11V17H9ZM13 9H15V17H13Z</StreamGeometry>
+    <StreamGeometry x:Key="IconRename">M4 17.3V20H6.7L17.8 8.9L15.1 6.2ZM17.2 4.1L15.9 5.4L18.6 8.1L19.9 6.8A1.4 1.4 0 0 0 19.9 4.8L19.2 4.1A1.4 1.4 0 0 0 17.2 4.1Z</StreamGeometry>
+  </Application.Resources>
   <Application.Styles>
     <FluentTheme />
 
@@ -23,11 +45,14 @@
       <Setter Property="MinHeight" Value="34" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="RenderTransformOrigin" Value="50%,50%" />
+      <Setter Property="RenderTransform" Value="scale(1)" />
       <Setter Property="Transitions">
         <Transitions>
-          <BrushTransition Property="Background" Duration="0:0:0.14" />
-          <BrushTransition Property="BorderBrush" Duration="0:0:0.14" />
-          <BrushTransition Property="Foreground" Duration="0:0:0.14" />
+          <BrushTransition Property="Background" Duration="0:0:0.18" Easing="CubicEaseOut" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.18" Easing="CubicEaseOut" />
+          <BrushTransition Property="Foreground" Duration="0:0:0.18" Easing="CubicEaseOut" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" Easing="CubicEaseOut" />
         </Transitions>
       </Setter>
     </Style>
@@ -35,10 +60,12 @@
     <Style Selector="Button:pointerover">
       <Setter Property="Background" Value="#20242A" />
       <Setter Property="BorderBrush" Value="#3A4049" />
+      <Setter Property="RenderTransform" Value="scale(1.012)" />
     </Style>
 
     <Style Selector="Button:pressed">
       <Setter Property="Background" Value="#101216" />
+      <Setter Property="RenderTransform" Value="scale(0.985)" />
     </Style>
 
     <Style Selector="Button.menu">
@@ -59,6 +86,41 @@
       <Setter Property="Background" Value="#242016" />
       <Setter Property="Foreground" Value="#E1C17B" />
       <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="Button.menu.simpleMode">
+      <Setter Property="Foreground" Value="#D6D8DC" />
+      <Setter Property="BorderBrush" Value="#30353D" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="12,4" />
+      <Setter Property="Margin" Value="0,0,8,0" />
+    </Style>
+
+    <Style Selector="PathIcon.navIcon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+    </Style>
+
+    <Style Selector="PathIcon.actionIcon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+    </Style>
+
+    <Style Selector="PathIcon.paneIcon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+    </Style>
+
+    <Style Selector="PathIcon.entryIcon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="Foreground" Value="#83A6C9" />
+    </Style>
+
+    <Style Selector="PathIcon.functionIcon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="Opacity" Value="0.9" />
     </Style>
 
     <Style Selector="Button.toolbar">
@@ -137,6 +199,41 @@
       <Setter Property="Foreground" Value="#FFFFFF" />
     </Style>
 
+    <Style Selector="Button.function:disabled">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="#1D2127" />
+      <Setter Property="Foreground" Value="#5F656E" />
+      <Setter Property="Opacity" Value="0.8" />
+    </Style>
+
+    <Style Selector="Button.paneBadge">
+      <Setter Property="Width" Value="30" />
+      <Setter Property="MinWidth" Value="30" />
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Background" Value="#20242A" />
+      <Setter Property="BorderBrush" Value="#3A4049" />
+      <Setter Property="Foreground" Value="#E1C17B" />
+      <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+
+    <Style Selector="Button.paneNav">
+      <Setter Property="MinWidth" Value="32" />
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="Padding" Value="7,3" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Background" Value="#12151A" />
+    </Style>
+
+    <Style Selector="Button.iconButton">
+      <Setter Property="Width" Value="32" />
+      <Setter Property="MinWidth" Value="32" />
+      <Setter Property="MinHeight" Value="32" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="9" />
+    </Style>
+
     <Style Selector="ComboBox">
       <Setter Property="Background" Value="#12151A" />
       <Setter Property="BorderBrush" Value="#2B3038" />
@@ -144,6 +241,17 @@
       <Setter Property="CornerRadius" Value="10" />
       <Setter Property="MinHeight" Value="36" />
       <Setter Property="Padding" Value="10,5" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Background" Duration="0:0:0.2" Easing="CubicEaseOut" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.2" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <Style Selector="ComboBox:pointerover">
+      <Setter Property="Background" Value="#171B20" />
+      <Setter Property="BorderBrush" Value="#3A414A" />
     </Style>
 
     <Style Selector="ComboBox.navControl">
@@ -159,6 +267,22 @@
       <Setter Property="CornerRadius" Value="10" />
       <Setter Property="Padding" Value="11,7" />
       <Setter Property="SelectionBrush" Value="#806B5832" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Background" Duration="0:0:0.2" Easing="CubicEaseOut" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.2" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <Style Selector="TextBox:pointerover">
+      <Setter Property="Background" Value="#12161B" />
+      <Setter Property="BorderBrush" Value="#373E47" />
+    </Style>
+
+    <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+      <Setter Property="BorderBrush" Value="#8C7040" />
+      <Setter Property="BorderThickness" Value="1" />
     </Style>
 
     <Style Selector="ToggleButton">
@@ -170,13 +294,45 @@
       <Setter Property="Background" Value="#0D1014" />
       <Setter Property="BorderBrush" Value="#262A31" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="CornerRadius" Value="14" />
       <Setter Property="ClipToBounds" Value="True" />
+      <Setter Property="BoxShadow" Value="0 12 32 0 #24000000" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Background" Duration="0:0:0.22" Easing="CubicEaseOut" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.22" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
     </Style>
 
     <Style Selector="Border.filePane.active">
-      <Setter Property="BorderBrush" Value="#C8A45D" />
+      <Setter Property="BorderBrush" Value="#8C6D35" />
       <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BoxShadow" Value="0 0 0 1 #242016" />
+    </Style>
+
+    <Style Selector="Border.tableHeader">
+      <Setter Property="Background" Value="#15191F" />
+      <Setter Property="BorderBrush" Value="#292F37" />
+      <Setter Property="BorderThickness" Value="0,1,0,1" />
+      <Setter Property="Padding" Value="8,5" />
+    </Style>
+
+    <Style Selector="Border.paneState">
+      <Setter Property="Background" Value="#0B0E12" />
+      <Setter Property="Padding" Value="24" />
+    </Style>
+
+    <Style Selector="GridSplitter.paneSplitter">
+      <Setter Property="Background" Value="#171B21" />
+      <Setter Property="Margin" Value="4,14" />
+      <Setter Property="Transitions">
+        <Transitions><BrushTransition Property="Background" Duration="0:0:0.2" Easing="CubicEaseOut" /></Transitions>
+      </Setter>
+    </Style>
+
+    <Style Selector="GridSplitter.paneSplitter:pointerover">
+      <Setter Property="Background" Value="#8C6D35" />
     </Style>
 
     <Style Selector="Border.panelHeader">
@@ -210,6 +366,25 @@
       <Setter Property="Padding" Value="20,16" />
     </Style>
 
+    <Style Selector="Border.tipStrip">
+      <Setter Property="Background" Value="#0E1115" />
+      <Setter Property="BorderBrush" Value="#282D34" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Padding" Value="14,10" />
+      <Setter Property="MinHeight" Value="56" />
+      <Setter Property="BoxShadow" Value="0 10 28 0 #36000000" />
+    </Style>
+
+    <Style Selector="Border.tipBadge">
+      <Setter Property="Width" Value="34" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="CornerRadius" Value="17" />
+      <Setter Property="Background" Value="#251F14" />
+      <Setter Property="BorderBrush" Value="#514224" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
     <Style Selector="Border.searchSurface">
       <Setter Property="Background" Value="#15181D" />
       <Setter Property="BorderBrush" Value="#343A43" />
@@ -217,6 +392,18 @@
       <Setter Property="CornerRadius" Value="20" />
       <Setter Property="Padding" Value="8" />
       <Setter Property="BoxShadow" Value="0 16 45 0 #66000000" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Background" Duration="0:0:0.18" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.18" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <Style Selector="Border.searchSurface:focus-within">
+      <Setter Property="Background" Value="#17191D" />
+      <Setter Property="BorderBrush" Value="#9A7A3F" />
+      <Setter Property="BoxShadow" Value="0 16 45 0 #66000000, 0 0 0 2 #403A2C19" />
     </Style>
 
     <Style Selector="Border.suggestionSurface">
@@ -278,11 +465,47 @@
 
     <Style Selector="TextBox.rescueSearch">
       <Setter Property="MinHeight" Value="56" />
-      <Setter Property="Padding" Value="18,13" />
+      <Setter Property="Padding" Value="18,0" />
       <Setter Property="CornerRadius" Value="14" />
       <Setter Property="Background" Value="#0C0F13" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="FontSize" Value="16" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="TextAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="TextBox.rescueSearch:focus">
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
+    <Style Selector="TextBox.rescueSearch:focus /template/ Border#PART_BorderElement">
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
+    <Style Selector="StackPanel.rescueHero">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.26" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <Style Selector="TextBlock.rotatingTip">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <Style Selector="ProgressBar.searchProgress">
+      <Setter Property="Background" Value="#17191D" />
+      <Setter Property="Foreground" Value="#D5B36C" />
     </Style>
 
     <Style Selector="ProgressBar">
@@ -303,15 +526,55 @@
       <Setter Property="Padding" Value="3" />
       <Setter Property="Margin" Value="2,1" />
       <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="RenderTransform" Value="translateX(0px)" />
       <Setter Property="Transitions">
         <Transitions>
-          <BrushTransition Property="Background" Duration="0:0:0.12" />
+          <BrushTransition Property="Background" Duration="0:0:0.16" Easing="CubicEaseOut" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" Easing="CubicEaseOut" />
         </Transitions>
       </Setter>
     </Style>
 
     <Style Selector="ListBoxItem:pointerover">
       <Setter Property="Background" Value="#171B20" />
+      <Setter Property="RenderTransform" Value="translateX(1px)" />
+    </Style>
+
+    <Style Selector="ListBoxItem:selected">
+      <Setter Property="Background" Value="#272116" />
+      <Setter Property="Foreground" Value="#F7F2E8" />
+    </Style>
+
+    <Style Selector="Grid.expertSurface">
+      <Setter Property="Opacity" Value="0.3" />
+      <Setter Property="RenderTransform" Value="translateY(4px)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.2" Easing="CubicEaseOut" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <Style Selector="Grid.expertSurface.visible">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="RenderTransform" Value="translateY(0px)" />
+    </Style>
+
+    <Style Selector="Control.expertPage">
+      <Setter Property="Opacity" Value="0.15" />
+      <Setter Property="RenderTransform" Value="translateY(7px)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.22" Easing="CubicEaseOut" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.26" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <Style Selector="Control.expertPage.visible">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="RenderTransform" Value="translateY(0px)" />
     </Style>
 
     <Style Selector="ListBox.rescueResults">

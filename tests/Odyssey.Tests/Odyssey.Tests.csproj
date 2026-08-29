@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\src\Odyssey.Desktop\Odyssey.Desktop.csproj" />
     <ProjectReference Include="..\..\src\Odyssey.Infrastructure\Odyssey.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Odyssey.Search\Odyssey.Search.csproj" />
+    <ProjectReference Include="..\..\src\Odyssey.Updater\Odyssey.Updater.csproj" />
   </ItemGroup>
 
 </Project>

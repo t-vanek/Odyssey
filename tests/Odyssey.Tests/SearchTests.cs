@@ -1,4 +1,5 @@
 using Odyssey.Core;
+using Odyssey.Infrastructure;
 
 namespace Odyssey.Tests;
 
@@ -54,7 +55,7 @@ public sealed class SearchTests
     }
 
     [Fact]
-    public async Task Suggestions_CombineIndexedNamesAndRememberedQueries()
+    public async Task Suggestions_UseRememberedQueriesAndNeverInventFromIndexedNames()
     {
         await using var environment = await TestEnvironment.CreateAsync();
         var created = await environment.CreateInvestigationAsync(Path.Combine(environment.Root, "suggestions"));
@@ -64,13 +65,12 @@ public sealed class SearchTests
             TestEntries.File(created.Target.Id, Path.Combine(created.Target.RootPath, "Rozpocet_Ostravice.xlsx"))
         ]);
 
-        var indexed = await environment.Search.SuggestAsync(new SearchSuggestionRequest
+        var withoutHistory = await environment.Search.SuggestAsync(new SearchSuggestionRequest
         {
             Query = "ostrav",
             SessionId = created.Session.Id
         }, CancellationToken.None);
-        Assert.Contains(indexed, suggestion => suggestion.Kind == SearchSuggestionKind.FileName
-                                                && suggestion.Text == "Projekt Ostravice Kanalizace");
+        Assert.Empty(withoutHistory);
 
         await environment.Search.RememberSearchAsync("Ostrava kanalizace 2021", created.Session.Id);
         await environment.Search.RememberSearchAsync("Ostrava kanalizace 2021", created.Session.Id);
@@ -83,6 +83,29 @@ public sealed class SearchTests
         Assert.Equal(SearchSuggestionKind.History, remembered.First().Kind);
         Assert.Equal("Ostrava kanalizace 2021", remembered.First().Text);
         Assert.True(remembered.Count <= 7);
+    }
+
+    [Fact]
+    public async Task SystemHistory_ReadsOnlyRealSearchUrisAndFiltersByPrefix()
+    {
+        await using var environment = await TestEnvironment.CreateAsync();
+        var xbel = Path.Combine(environment.Root, "recently-used.xbel");
+        await File.WriteAllTextAsync(xbel, """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <xbel xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks">
+              <bookmark href="baloosearch:/?query=Projekt%20Ostravice" />
+              <bookmark href="filenamesearch:?search=Rozpocet+2024&amp;url=file%3A%2F%2F%2Ftmp" />
+              <bookmark href="file:///tmp/not-a-search.txt" />
+            </xbel>
+            """);
+
+        var extracted = SystemSearchHistoryService.ReadSearchUrisFromXbel(xbel);
+        Assert.Equal(["Projekt Ostravice", "Rozpocet 2024"], extracted);
+
+        var service = new SystemSearchHistoryService(() => extracted);
+        await service.WarmupAsync();
+        Assert.Equal(["Projekt Ostravice"], service.Suggest("proj", 7));
+        Assert.Empty(service.Suggest("not", 7));
     }
 
     [Fact]

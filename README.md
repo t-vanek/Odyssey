@@ -25,7 +25,25 @@ Open `Odyssey.slnx` directly in JetBrains Rider. The executable startup project 
 - `Odyssey.Infrastructure` — portable streaming scan, bounded scan pipeline, SQLite persistence, safe file operations, disk disconnection, classification, and lazy duplicate hashing.
 - `Odyssey.Search` — SQLite FTS5 schema, triggers, query construction, filters, and ranking.
 - `Odyssey.Desktop` — Avalonia MVVM application, composition root, folder picker, navigation, and safe OS interactions.
+- `Odyssey.Updater` — small out-of-process update helper with guarded extraction, rollback, and application restart.
 - `Odyssey.Tests` — cross-platform xUnit integration and behavior tests using temporary folders and SQLite databases.
+
+## CI, releases, and automatic updates
+
+GitHub Actions builds and tests every push and pull request to `master` on both Linux and Windows. Test reports are retained as workflow artifacts. Dependabot checks NuGet packages and GitHub Actions weekly.
+
+A release is produced from an existing semantic version tag in the strict form `vMAJOR.MINOR.PATCH`:
+
+```bash
+git tag -a v1.0.0 -m "Odyssey 1.0.0"
+git push origin v1.0.0
+```
+
+The release workflow first runs the complete test suite, then creates self-contained single-file packages for `win-x64` and `linux-x64`. It publishes both archives, `checksums.txt`, and `update-manifest.json` into one GitHub Release. The release is kept as a draft until every asset is attached, so users never receive a partially assembled update.
+
+Packaged builds check the official Odyssey GitHub Releases feed in the background after the main window is visible. A newer package is downloaded into the application-data directory, its SHA-256 digest is verified using a constant-time comparison, and the user is offered a calm restart action in Settings. The separate update helper waits for Odyssey to close, validates archive paths, replaces the portable installation with rollback protection, and starts Odyssey again. Development builds without the packaged helper do not perform automatic background checks. Set `ODYSSEY_DISABLE_UPDATE_CHECK=1` to disable the check explicitly.
+
+Automatic replacement requires the extracted portable installation directory to be writable by the current user. For release integrity, enable GitHub's immutable releases option in the repository settings after confirming the release workflow: <https://docs.github.com/en/enterprise-cloud@latest/code-security/concepts/supply-chain-security/immutable-releases>.
 
 ## File and disk operations
 

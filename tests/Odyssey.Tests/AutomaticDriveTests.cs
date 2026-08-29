@@ -22,7 +22,7 @@ public sealed class AutomaticDriveTests
         var localization = new LocalizationService(environment.Storage);
         var viewModel = new MainViewModel(
             environment.Store, coordinator, environment.Search,
-            new DuplicateAnalyzer(environment.Store, NullLogger<DuplicateAnalyzer>.Instance),
+            new EmptySystemSearchHistory(),
             new UnusedDesktopInteraction(), localization,
             new FixedVolumeDiscovery(new StorageVolume(drive, "Test drive", true)),
             new CachedDirectoryBrowserService(),
@@ -41,6 +41,10 @@ public sealed class AutomaticDriveTests
         Assert.Contains(localization["SplashStartingServices"], startupStatuses);
         Assert.Equal(localization["SplashReady"], startupStatuses[^1]);
         Assert.True(viewModel.IsRescuePage);
+        var initialTip = viewModel.RescueTipText;
+        viewModel.AdvanceRescueTip();
+        Assert.NotEqual(initialTip, viewModel.RescueTipText);
+        Assert.Equal(localization["StartSearching"], viewModel.RescueSearchButtonText);
         viewModel.SearchText = "Girlanda";
         var deadline = DateTime.UtcNow.AddSeconds(5);
         while (DateTime.UtcNow < deadline && !viewModel.SearchResults.Any(result => result.Name.Contains("Girlanda", StringComparison.Ordinal)))
@@ -87,5 +91,11 @@ public sealed class AutomaticDriveTests
     {
         public Task UnmountAsync(StorageVolume volume, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task EjectAsync(StorageVolume volume, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class EmptySystemSearchHistory : ISystemSearchHistoryService
+    {
+        public Task WarmupAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public IReadOnlyList<string> Suggest(string query, int limit) => [];
     }
 }

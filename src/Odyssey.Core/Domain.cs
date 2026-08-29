@@ -85,7 +85,7 @@ public sealed record SearchRequest
     public int Offset { get; init; }
 }
 
-public enum SearchSuggestionKind { History, FileName }
+public enum SearchSuggestionKind { History, SystemHistory }
 
 public sealed record SearchSuggestion(string Text, SearchSuggestionKind Kind);
 

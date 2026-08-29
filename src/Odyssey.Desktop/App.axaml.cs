@@ -25,6 +25,16 @@ public sealed class App : Application
             services.AddSingleton(SystemPerformanceProfile.Current);
             services.AddSingleton<ApplicationStorage>();
             services.AddSingleton<LocalizationService>();
+            services.AddSingleton(_ =>
+            {
+                var client = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("Odyssey-Desktop/1.0");
+                client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+                client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2026-03-10");
+                return client;
+            });
+            services.AddSingleton<UpdateService>();
+            services.AddSingleton<UpdateViewModel>();
             services.AddSingleton<SqliteConnectionFactory>();
             services.AddSingleton<IOdysseyStore, SqliteOdysseyStore>();
             services.AddSingleton<IFileClassifier, ExtensionFileClassifier>();
@@ -42,7 +52,7 @@ public sealed class App : Application
                 PerformanceProfile: provider.GetRequiredService<SystemPerformanceProfile>()));
             services.AddSingleton<IScanCoordinator, ScanCoordinator>();
             services.AddSingleton<ISearchService, SqliteSearchService>();
-            services.AddSingleton<IDuplicateAnalyzer, DuplicateAnalyzer>();
+            services.AddSingleton<ISystemSearchHistoryService, SystemSearchHistoryService>();
             services.AddSingleton<IBackgroundAutomationService, BackgroundAutomationService>();
             services.AddSingleton<DesktopInteractionService>();
             services.AddSingleton<IDesktopInteractionService>(provider => provider.GetRequiredService<DesktopInteractionService>());
@@ -77,6 +87,8 @@ public sealed class App : Application
         await Task.Run(() => services.GetRequiredService<LocalContentExtractor>());
 
         var viewModel = services.GetRequiredService<MainViewModel>();
+        var updater = services.GetRequiredService<UpdateViewModel>();
+        updater.RestartRequested += (_, _) => desktop.Shutdown();
         var window = services.GetRequiredService<MainWindow>();
         services.GetRequiredService<DesktopInteractionService>().Attach(window);
         await viewModel.InitializeAsync(splash.SetStatus);
@@ -85,5 +97,6 @@ public sealed class App : Application
         window.Show();
         splash.Close();
         window.Activate();
+        updater.BeginAutomaticCheck();
     }
 }

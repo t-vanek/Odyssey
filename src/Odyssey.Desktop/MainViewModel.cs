@@ -52,15 +52,40 @@ public sealed class FilePaneViewModel(IDirectoryBrowserService browser) : Observ
 
     public BrowserEntry? SelectedEntry { get => _selectedEntry; private set => SetProperty(ref _selectedEntry, value); }
     public IReadOnlyList<BrowserEntry> SelectedEntries => _selectedEntries;
-    public string CurrentPath { get => _currentPath; private set => SetProperty(ref _currentPath, value); }
+    public string CurrentPath
+    {
+        get => _currentPath;
+        private set
+        {
+            if (SetProperty(ref _currentPath, value)) NotifyPresentationState();
+        }
+    }
     public string SpaceDisplay { get => _spaceDisplay; private set => SetProperty(ref _spaceDisplay, value); }
-    public string? LastError { get => _lastError; private set => SetProperty(ref _lastError, value); }
+    public string? LastError
+    {
+        get => _lastError;
+        private set
+        {
+            if (SetProperty(ref _lastError, value)) NotifyPresentationState();
+        }
+    }
     public bool IsActive { get => _isActive; internal set => SetProperty(ref _isActive, value); }
-    public bool IsLoading { get => _isLoading; private set => SetProperty(ref _isLoading, value); }
+    public bool IsLoading
+    {
+        get => _isLoading;
+        private set
+        {
+            if (SetProperty(ref _isLoading, value)) NotifyPresentationState();
+        }
+    }
     public bool HasMore { get => _hasMore; private set => SetProperty(ref _hasMore, value); }
     public int TotalItems { get => _totalItems; private set => SetProperty(ref _totalItems, value); }
     public bool CanGoBack => _backHistory.Count > 0;
     public bool CanGoForward => _forwardHistory.Count > 0;
+    public bool ShowInitialLoading => IsLoading && Entries.All(item => item.IsParent);
+    public bool ShowEmptyState => !IsLoading && LastError is null && !string.IsNullOrWhiteSpace(CurrentPath)
+                                  && Entries.All(item => item.IsParent);
+    public bool ShowErrorState => !IsLoading && LastError is not null;
     public string SelectionSummary
     {
         get
@@ -131,6 +156,7 @@ public sealed class FilePaneViewModel(IDirectoryBrowserService browser) : Observ
         Entries.Clear();
         if (SelectedTarget is not null && !PathEquals(directory.FullName, SelectedTarget.RootPath))
             Entries.Add(new BrowserEntry("..", directory.Parent?.FullName ?? directory.FullName, FileEntryType.Directory, null, null, IsParent: true));
+        NotifyPresentationState();
         _selectedEntries = [];
         SelectedEntry = null;
         _nextOffset = 0;
@@ -166,6 +192,7 @@ public sealed class FilePaneViewModel(IDirectoryBrowserService browser) : Observ
             foreach (var item in page.Items)
                 Entries.Add(new BrowserEntry(item.Name, item.FullPath, item.Type, item.Size, item.ModifiedAt,
                     Extension: item.Extension, Attributes: item.Attributes));
+            NotifyPresentationState();
             _nextOffset += page.Items.Count;
             TotalItems = page.TotalCount;
             HasMore = page.HasMore;
@@ -180,6 +207,13 @@ public sealed class FilePaneViewModel(IDirectoryBrowserService browser) : Observ
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
         finally { if (generation == _loadGeneration) IsLoading = false; }
+    }
+
+    private void NotifyPresentationState()
+    {
+        OnPropertyChanged(nameof(ShowInitialLoading));
+        OnPropertyChanged(nameof(ShowEmptyState));
+        OnPropertyChanged(nameof(ShowErrorState));
     }
 
     private void UpdateSpaceDisplay(string path)
@@ -214,10 +248,11 @@ public sealed class FilePaneViewModel(IDirectoryBrowserService browser) : Observ
 public sealed class MainViewModel : ObservableObject
 {
     private const int SearchPageSize = 250;
+    private const int RescueTipCount = 5;
     private readonly IOdysseyStore _store;
     private readonly IScanCoordinator _scanner;
     private readonly ISearchService _search;
-    private readonly IDuplicateAnalyzer _duplicates;
+    private readonly ISystemSearchHistoryService _systemSearchHistory;
     private readonly IDesktopInteractionService _desktop;
     private readonly LocalizationService _localization;
     private readonly IStorageVolumeDiscovery _volumeDiscovery;
@@ -242,6 +277,7 @@ public sealed class MainViewModel : ObservableObject
     private bool _searchHasMore;
     private bool _searchPageLoading;
     private bool _suppressNextSuggestionRefresh;
+    private int _rescueTipIndex;
     private bool _initialized;
     private string _activePage = "Rescue";
     private RescueSession? _workspace;
@@ -277,8 +313,6 @@ public sealed class MainViewModel : ObservableObject
     private long _scanBytes;
     private long _scanErrors;
     private string _scanElapsed = "00:00:00";
-    private SessionAnalysis? _analysis;
-    private int _confirmedDuplicateGroups;
     private BackgroundAutomationStatus _backgroundStatus = new(BackgroundActivity.Idle);
     private string _backgroundStatusMessage = string.Empty;
 
@@ -286,7 +320,7 @@ public sealed class MainViewModel : ObservableObject
         IOdysseyStore store,
         IScanCoordinator scanner,
         ISearchService search,
-        IDuplicateAnalyzer duplicates,
+        ISystemSearchHistoryService systemSearchHistory,
         IDesktopInteractionService desktop,
         LocalizationService localization,
         IStorageVolumeDiscovery volumeDiscovery,
@@ -295,12 +329,13 @@ public sealed class MainViewModel : ObservableObject
         IFileOperationService fileOperations,
         UserPreferencesService preferences,
         IBackgroundAutomationService automation,
-        IOcrCapability ocr)
+        IOcrCapability ocr,
+        UpdateViewModel? updater = null)
     {
         _store = store;
         _scanner = scanner;
         _search = search;
-        _duplicates = duplicates;
+        _systemSearchHistory = systemSearchHistory;
         _desktop = desktop;
         _localization = localization;
         _volumeDiscovery = volumeDiscovery;
@@ -310,6 +345,7 @@ public sealed class MainViewModel : ObservableObject
         _preferences = preferences;
         _automation = automation;
         _ocr = ocr;
+        Updater = updater;
         _automation.StatusChanged += OnBackgroundStatusChanged;
         _readOnlyMode = preferences.ReadOnlyMode;
         _fileOperations.AccessMode = _readOnlyMode ? FileAccessMode.ReadOnly : FileAccessMode.ManageFiles;
@@ -339,8 +375,6 @@ public sealed class MainViewModel : ObservableObject
         StartScanCommand = new AsyncRelayCommand(StartScanAsync, () => SelectedTarget is not null && !IsScanning);
         CancelScanCommand = new RelayCommand(CancelScan, () => IsScanning);
         SearchNowCommand = new AsyncRelayCommand(SearchFromUiAsync);
-        RefreshAnalysisCommand = new AsyncRelayCommand(RefreshAnalysisAsync, () => _workspace is not null);
-        AnalyzeDuplicatesCommand = new AsyncRelayCommand(AnalyzeDuplicatesAsync, () => _workspace is not null && !IsBusy);
         CopyPathCommand = new AsyncRelayCommand(CopyPathAsync, HasSelectedEntry);
         OpenResultCommand = new AsyncRelayCommand(OpenResultAsync, HasAvailableSelectedEntry);
         OpenFolderCommand = new AsyncRelayCommand(OpenFolderAsync, HasSelectedEntry);
@@ -376,6 +410,7 @@ public sealed class MainViewModel : ObservableObject
     public FilePaneViewModel ActivePane => _activePane;
     public FilePaneViewModel PassivePane => ReferenceEquals(_activePane, LeftPane) ? RightPane : LeftPane;
     public LocalizationService Localization => _localization;
+    public UpdateViewModel? Updater { get; }
 
     public ICommand ShowPageCommand { get; }
     public IAsyncRelayCommand RescueSearchCommand { get; }
@@ -385,8 +420,6 @@ public sealed class MainViewModel : ObservableObject
     public IAsyncRelayCommand StartScanCommand { get; }
     public IRelayCommand CancelScanCommand { get; }
     public IAsyncRelayCommand SearchNowCommand { get; }
-    public IAsyncRelayCommand RefreshAnalysisCommand { get; }
-    public IAsyncRelayCommand AnalyzeDuplicatesCommand { get; }
     public IAsyncRelayCommand CopyPathCommand { get; }
     public IAsyncRelayCommand OpenResultCommand { get; }
     public IAsyncRelayCommand OpenFolderCommand { get; }
@@ -525,6 +558,7 @@ public sealed class MainViewModel : ObservableObject
         private set
         {
             if (!SetProperty(ref _isSearching, value)) return;
+            OnPropertyChanged(nameof(RescueSearchButtonText));
             RaiseRescueState();
         }
     }
@@ -548,8 +582,6 @@ public sealed class MainViewModel : ObservableObject
     public long ScanErrors { get => _scanErrors; private set => SetProperty(ref _scanErrors, value); }
     public string ScanElapsed { get => _scanElapsed; private set => SetProperty(ref _scanElapsed, value); }
     public string ScanBytesDisplay => FormatBytes(ScanBytes);
-    public SessionAnalysis? Analysis { get => _analysis; private set { if (SetProperty(ref _analysis, value)) RaiseAnalysisProperties(); } }
-    public int ConfirmedDuplicateGroups { get => _confirmedDuplicateGroups; private set => SetProperty(ref _confirmedDuplicateGroups, value); }
     public string BackgroundStatusMessage { get => _backgroundStatusMessage; private set => SetProperty(ref _backgroundStatusMessage, value); }
     public string OcrStatusDisplay => _ocr.IsAvailable
         ? _localization.Format("OcrReady", _localization["OcrLanguages"])
@@ -574,6 +606,10 @@ public sealed class MainViewModel : ObservableObject
     public bool ShowRescueNoResults => HasTargets && HasSearchQuery && !HasSearchResults && !IsSearching && !HasSearchError;
     public bool ShowRescueResults => HasSearchQuery && HasSearchResults;
     public string LocationsSummary => _localization.Format("RescueLocations", Targets.Count);
+    public string RescueTipText => _localization[$"RescueRotatingTip{_rescueTipIndex + 1}"];
+    public string RescueSearchButtonText => IsSearching
+        ? _localization["SearchingButton"]
+        : _localization["StartSearching"];
     public string RescueStatusTitle => IsSearching
         ? _localization["RescueSearchingTitle"]
         : HasSearchError
@@ -601,14 +637,13 @@ public sealed class MainViewModel : ObservableObject
     public bool IsFilesPage => _activePage == "Files";
     public bool IsSearchPage => _activePage == "Search";
     public bool IsTargetsPage => _activePage == "Targets";
-    public bool IsAnalysisPage => _activePage == "Analysis";
     public bool IsSettingsPage => _activePage == "Settings";
-    public string TotalFilesDisplay => (Analysis?.TotalFiles ?? 0).ToString("N0", CultureInfo.CurrentCulture);
-    public string TotalDirectoriesDisplay => (Analysis?.TotalDirectories ?? 0).ToString("N0", CultureInfo.CurrentCulture);
-    public string TotalSizeDisplay => FormatBytes(Analysis?.TotalIndexedSize ?? 0);
-    public string MissingDisplay => (Analysis?.MissingEntries ?? 0).ToString("N0", CultureInfo.CurrentCulture);
-    public string AnalysisErrorsDisplay => (Analysis?.ScanErrors ?? 0).ToString("N0", CultureInfo.CurrentCulture);
-    public string CandidateGroupsDisplay => (Analysis?.DuplicateCandidateGroups ?? 0).ToString("N0", CultureInfo.CurrentCulture);
+
+    public void AdvanceRescueTip()
+    {
+        _rescueTipIndex = (_rescueTipIndex + 1) % RescueTipCount;
+        OnPropertyChanged(nameof(RescueTipText));
+    }
     public string DatabasePath => _store.DatabasePath;
 
     public async Task InitializeAsync(Action<string>? reportStatus = null)
@@ -708,13 +743,12 @@ public sealed class MainViewModel : ObservableObject
 
     private void ShowPage(string? page)
     {
-        _activePage = page ?? "Rescue";
+        _activePage = page is "Files" or "Search" or "Targets" or "Settings" or "Rescue" ? page : "Rescue";
         OnPropertyChanged(nameof(IsRescuePage));
         OnPropertyChanged(nameof(IsExpertPage));
         OnPropertyChanged(nameof(IsFilesPage));
         OnPropertyChanged(nameof(IsSearchPage));
-        OnPropertyChanged(nameof(IsTargetsPage)); OnPropertyChanged(nameof(IsAnalysisPage)); OnPropertyChanged(nameof(IsSettingsPage));
-        if (IsAnalysisPage) _ = RefreshAnalysisAsync();
+        OnPropertyChanged(nameof(IsTargetsPage)); OnPropertyChanged(nameof(IsSettingsPage));
         if (IsFilesPage && SelectedTarget is not null && string.IsNullOrWhiteSpace(CurrentDirectoryPath))
             ActivePane.SelectedTarget = SelectedTarget;
         NotifyCommandStates();
@@ -723,7 +757,7 @@ public sealed class MainViewModel : ObservableObject
     private async Task LoadWorkspaceAsync(Action<string>? reportStatus = null)
     {
         _searchCancellation?.Cancel();
-        Targets.Clear(); SelectedTarget = null; Analysis = null; ConfirmedDuplicateGroups = 0;
+        Targets.Clear(); SelectedTarget = null;
         OnPropertyChanged(nameof(HasTargets));
         OnPropertyChanged(nameof(HasNoTargets));
         if (_workspace is null) return;
@@ -737,8 +771,8 @@ public sealed class MainViewModel : ObservableObject
 
             reportStatus?.Invoke(_localization["SplashWarmingSearch"]);
             var warmSearch = IgnoreWarmupFailureAsync(() => _search.WarmupAsync(_workspace.Id));
+            var warmSystemHistory = IgnoreWarmupFailureAsync(() => _systemSearchHistory.WarmupAsync());
             var firstResults = SearchNowAsync();
-            var analysis = RefreshAnalysisAsync();
 
             reportStatus?.Invoke(_localization["SplashPreparingFolders"]);
             var warmDirectories = Targets
@@ -750,7 +784,8 @@ public sealed class MainViewModel : ObservableObject
                     _directoryBrowser.GetPageAsync(path, 0, 400)))
                 .ToArray();
 
-            await Task.WhenAll(warmDirectories.Append(warmSearch).Append(firstResults).Append(analysis));
+            await Task.WhenAll(warmDirectories.Append(warmSearch).Append(warmSystemHistory)
+                .Append(firstResults));
 
             // File panes now consume the already populated bounded directory cache.
             LeftPane.SelectedTarget = Targets.FirstOrDefault();
@@ -880,7 +915,6 @@ public sealed class MainViewModel : ObservableObject
                 : _localization.Format("ScanEnded", _localization.TranslateEnum(completed.Status));
             if (completed.Status == ScanStatus.Completed) _automation.NotifyTargetScanned(target);
             await SearchNowAsync();
-            await RefreshAnalysisAsync();
         }
         catch (Exception ex)
         {
@@ -1008,7 +1042,16 @@ public sealed class MainViewModel : ObservableObject
             }, cancellation.Token);
             if (generation != Volatile.Read(ref _suggestionGeneration)) return;
             SearchSuggestions.Clear();
-            foreach (var suggestion in suggestions) SearchSuggestions.Add(suggestion);
+            var seen = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase);
+            foreach (var suggestion in suggestions)
+            {
+                if (seen.Add(suggestion.Text)) SearchSuggestions.Add(suggestion);
+                if (SearchSuggestions.Count >= 7) break;
+            }
+            foreach (var text in _systemSearchHistory.Suggest(query, 7 - SearchSuggestions.Count))
+            {
+                if (seen.Add(text)) SearchSuggestions.Add(new SearchSuggestion(text, SearchSuggestionKind.SystemHistory));
+            }
         }
         catch (OperationCanceledException) { }
         catch
@@ -1120,27 +1163,6 @@ public sealed class MainViewModel : ObservableObject
         catch (OperationCanceledException) { }
         catch (Exception ex) { StatusMessage = _localization.Format("SearchFailed", ex.Message); }
         finally { _searchPageLoading = false; }
-    }
-
-    private async Task RefreshAnalysisAsync()
-    {
-        if (_workspace is null) return;
-        try { Analysis = await _store.GetAnalysisAsync(_workspace.Id); }
-        catch (Exception ex) { StatusMessage = _localization.Format("AnalysisFailed", ex.Message); }
-    }
-
-    private async Task AnalyzeDuplicatesAsync()
-    {
-        if (_workspace is null) return;
-        try
-        {
-            IsBusy = true; StatusMessage = _localization["DuplicatesRunning"];
-            var groups = await _duplicates.FindAsync(_workspace.Id, CancellationToken.None);
-            ConfirmedDuplicateGroups = groups.Count;
-            StatusMessage = _localization.Format("DuplicatesDone", groups.Count);
-        }
-        catch (Exception ex) { StatusMessage = _localization.Format("DuplicatesFailed", ex.Message); }
-        finally { IsBusy = false; }
     }
 
     private Task CopyPathAsync()
@@ -1465,9 +1487,10 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(OcrStatusDisplay));
         OnPropertyChanged(nameof(SelectedResultProbabilityDisplay));
         OnPropertyChanged(nameof(SelectedResultConfidenceDetail));
+        OnPropertyChanged(nameof(RescueTipText));
+        OnPropertyChanged(nameof(RescueSearchButtonText));
         RaiseRescueState();
         RebuildFileOperationHistory();
-        OnPropertyChanged(nameof(Analysis));
 
         var selectedId = SelectedResult?.FileId;
         var results = SearchResults.ToArray();
@@ -1523,7 +1546,6 @@ public sealed class MainViewModel : ObservableObject
     {
         AddTargetCommand.NotifyCanExecuteChanged();
         UpdateTargetCommand.NotifyCanExecuteChanged(); RemoveTargetCommand.NotifyCanExecuteChanged(); StartScanCommand.NotifyCanExecuteChanged(); CancelScanCommand.NotifyCanExecuteChanged();
-        RefreshAnalysisCommand.NotifyCanExecuteChanged(); AnalyzeDuplicatesCommand.NotifyCanExecuteChanged();
         CopyPathCommand.NotifyCanExecuteChanged(); OpenResultCommand.NotifyCanExecuteChanged(); OpenFolderCommand.NotifyCanExecuteChanged();
         NavigateUpCommand.NotifyCanExecuteChanged();
         NavigateLeftUpCommand.NotifyCanExecuteChanged(); NavigateRightUpCommand.NotifyCanExecuteChanged();
@@ -1533,13 +1555,6 @@ public sealed class MainViewModel : ObservableObject
         CopyEntryCommand.NotifyCanExecuteChanged(); MoveEntryCommand.NotifyCanExecuteChanged(); TrashEntryCommand.NotifyCanExecuteChanged();
         UndoFileOperationCommand.NotifyCanExecuteChanged(); CancelFileOperationCommand.NotifyCanExecuteChanged();
         UnmountDriveCommand.NotifyCanExecuteChanged(); EjectDriveCommand.NotifyCanExecuteChanged();
-    }
-
-    private void RaiseAnalysisProperties()
-    {
-        OnPropertyChanged(nameof(TotalFilesDisplay)); OnPropertyChanged(nameof(TotalDirectoriesDisplay));
-        OnPropertyChanged(nameof(TotalSizeDisplay)); OnPropertyChanged(nameof(MissingDisplay));
-        OnPropertyChanged(nameof(AnalysisErrorsDisplay)); OnPropertyChanged(nameof(CandidateGroupsDisplay));
     }
 
     private static long? TryLong(string text) => long.TryParse(text, NumberStyles.Integer, CultureInfo.CurrentCulture, out var value) ? value : null;

@@ -10,16 +10,34 @@ public sealed partial class MainWindow : Window
 {
     private MainViewModel? _viewModel;
     private bool _suggestionAcceptanceQueued;
+    private readonly DispatcherTimer _rescueTipTimer;
+    private bool _windowOpen;
+    private bool _searchHasFocus;
+    private bool _tipPointerOver;
+    private bool _tipTransitioning;
 
     public MainWindow()
     {
         AvaloniaXamlLoader.Load(this);
+        _rescueTipTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
+        _rescueTipTimer.Tick += RotateRescueTip;
         this.FindControl<ListBox>("LeftFileList")?.AddHandler(ScrollViewer.ScrollChangedEvent, LeftListScrolled);
         this.FindControl<ListBox>("RightFileList")?.AddHandler(ScrollViewer.ScrollChangedEvent, RightListScrolled);
         this.FindControl<ListBox>("SearchResultList")?.AddHandler(ScrollViewer.ScrollChangedEvent, SearchListScrolled);
         this.FindControl<ListBox>("RescueResultList")?.AddHandler(ScrollViewer.ScrollChangedEvent, SearchListScrolled);
         if (this.FindControl<TextBox>("RescueSearchBox") is { } rescueSearch)
+        {
             rescueSearch.KeyDown += RescueSearchKeyDown;
+            rescueSearch.GotFocus += (_, _) => { _searchHasFocus = true; UpdateTipTimer(); };
+            rescueSearch.LostFocus += (_, _) => { _searchHasFocus = false; UpdateTipTimer(); };
+        }
+        if (this.FindControl<Border>("RescueTipPanel") is { } tipPanel)
+        {
+            tipPanel.PointerEntered += (_, _) => { _tipPointerOver = true; UpdateTipTimer(); };
+            tipPanel.PointerExited += (_, _) => { _tipPointerOver = false; UpdateTipTimer(); };
+        }
+        Opened += MainWindowOpened;
+        Closed += (_, _) => { _windowOpen = false; _rescueTipTimer.Stop(); };
     }
 
     public MainWindow(MainViewModel viewModel) : this()
@@ -91,6 +109,41 @@ public sealed partial class MainWindow : Window
                 _suggestionAcceptanceQueued = false;
             }
         }, DispatcherPriority.Background);
+    }
+
+    private async void MainWindowOpened(object? sender, EventArgs e)
+    {
+        _windowOpen = true;
+        UpdateTipTimer();
+        if (this.FindControl<StackPanel>("RescueHero") is not { } hero) return;
+        hero.Opacity = 0;
+        await Task.Delay(45);
+        if (_windowOpen) hero.Opacity = 1;
+    }
+
+    private async void RotateRescueTip(object? sender, EventArgs e)
+    {
+        if (_tipTransitioning || _viewModel?.ShowRescueWelcome != true) return;
+        if (this.FindControl<TextBlock>("RescueTipText") is not { } tipText) return;
+        _tipTransitioning = true;
+        try
+        {
+            tipText.Opacity = 0;
+            await Task.Delay(190);
+            if (!_windowOpen || _viewModel?.ShowRescueWelcome != true) return;
+            _viewModel.AdvanceRescueTip();
+            tipText.Opacity = 1;
+        }
+        finally
+        {
+            _tipTransitioning = false;
+        }
+    }
+
+    private void UpdateTipTimer()
+    {
+        if (_windowOpen && !_searchHasFocus && !_tipPointerOver) _rescueTipTimer.Start();
+        else _rescueTipTimer.Stop();
     }
 
     private static void LoadNearEnd(ScrollChangedEventArgs e, FilePaneViewModel? pane)
