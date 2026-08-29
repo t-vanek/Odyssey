@@ -60,8 +60,44 @@ internal sealed class TestEnvironment : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await Task.Yield();
-        if (Directory.Exists(Root)) Directory.Delete(Root, true);
+        if (!Directory.Exists(Root)) return;
+
+        const int attempts = 8;
+        for (var attempt = 1; attempt <= attempts; attempt++)
+        {
+            try
+            {
+                Directory.Delete(Root, true);
+                return;
+            }
+            catch (Exception exception) when (attempt < attempts
+                                               && exception is IOException or UnauthorizedAccessException)
+            {
+                // Windows can keep a just-disposed SQLite or scanner handle alive for a short time.
+                // Cleanup is test infrastructure, so wait asynchronously instead of making the
+                // product tests flaky or hiding a persistent lock after the final attempt.
+                await Task.Delay(TimeSpan.FromMilliseconds(25 * attempt));
+            }
+        }
+    }
+}
+
+internal static class TestWait
+{
+    public static async Task<bool> UntilAsync(
+        Func<bool> condition,
+        TimeSpan timeout,
+        TimeSpan? pollingInterval = null)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        var interval = pollingInterval ?? TimeSpan.FromMilliseconds(20);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition()) return true;
+            await Task.Delay(interval);
+        }
+
+        return condition();
     }
 }
 

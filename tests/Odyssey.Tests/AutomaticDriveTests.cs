@@ -101,7 +101,7 @@ public sealed class AutomaticDriveTests
         viewModel.ShowPageCommand.Execute("Files");
         viewModel.LeftPane.SelectedTarget = Target(leftRoot);
         viewModel.RightPane.SelectedTarget = Target(rightRoot);
-        Assert.True(SpinWait.SpinUntil(
+        Assert.True(await TestWait.UntilAsync(
             () => !viewModel.LeftPane.IsLoading && !viewModel.RightPane.IsLoading,
             TimeSpan.FromSeconds(3)));
         viewModel.LeftPane.SetSelection([viewModel.LeftPane.Entries[0]]);
@@ -154,11 +154,12 @@ public sealed class AutomaticDriveTests
         viewModel.ShowPageCommand.Execute("Files");
         viewModel.LeftPane.SelectedTarget = Target(leftRoot);
         viewModel.RightPane.SelectedTarget = Target(rightRoot);
-        Assert.True(SpinWait.SpinUntil(
+        Assert.True(await TestWait.UntilAsync(
             () => !viewModel.LeftPane.IsLoading && !viewModel.RightPane.IsLoading,
             TimeSpan.FromSeconds(3)));
         viewModel.RightPane.OpenArchive(archivePath);
-        Assert.True(SpinWait.SpinUntil(() => !viewModel.RightPane.IsLoading, TimeSpan.FromSeconds(3)));
+        Assert.True(await TestWait.UntilAsync(
+            () => !viewModel.RightPane.IsLoading, TimeSpan.FromSeconds(3)));
         viewModel.LeftPane.SetSelection([
             viewModel.LeftPane.Entries.Single(item => item.Name == "selected.txt")
         ]);
@@ -200,7 +201,8 @@ public sealed class AutomaticDriveTests
             new NullBackgroundAutomationService(), new DisabledOcrCapability(), archives: archives);
         viewModel.ShowPageCommand.Execute("Files");
         viewModel.LeftPane.SelectedTarget = Target(root);
-        Assert.True(SpinWait.SpinUntil(() => !viewModel.LeftPane.IsLoading, TimeSpan.FromSeconds(3)));
+        Assert.True(await TestWait.UntilAsync(
+            () => !viewModel.LeftPane.IsLoading, TimeSpan.FromSeconds(3)));
         viewModel.LeftPane.SetSelection(viewModel.LeftPane.Entries.Where(item => item.Type == FileEntryType.File));
         viewModel.LeftPane.Activate();
 
@@ -213,12 +215,14 @@ public sealed class AutomaticDriveTests
         Assert.Contains("bundle.zip", desktop.ConfirmationMessage, StringComparison.Ordinal);
 
         viewModel.LeftPane.OpenArchive(archivePath);
-        Assert.True(SpinWait.SpinUntil(() => !viewModel.LeftPane.IsLoading, TimeSpan.FromSeconds(3)));
+        Assert.True(await TestWait.UntilAsync(
+            () => !viewModel.LeftPane.IsLoading, TimeSpan.FromSeconds(3)));
         viewModel.LeftPane.SetSelection([
             viewModel.LeftPane.Entries.Single(item => item.Name == "one.txt")
         ]);
         await viewModel.TrashEntryCommand.ExecuteAsync(null);
-        Assert.True(SpinWait.SpinUntil(() => !viewModel.LeftPane.IsLoading, TimeSpan.FromSeconds(3)));
+        Assert.True(await TestWait.UntilAsync(
+            () => !viewModel.LeftPane.IsLoading, TimeSpan.FromSeconds(3)));
 
         Assert.Equal("two.txt", Assert.Single(await archives.ListAsync(archivePath)).Name);
         Assert.Contains("bundle.zip", desktop.ConfirmationMessage, StringComparison.Ordinal);
@@ -274,7 +278,8 @@ public sealed class AutomaticDriveTests
         Assert.Equal(Path.GetFullPath(nested), Assert.Single(viewModel.Hotlist));
         Assert.True(viewModel.LeftPane.CanGoBack);
         viewModel.LeftPane.GoBack();
-        Assert.True(SpinWait.SpinUntil(() => !viewModel.LeftPane.IsLoading, TimeSpan.FromSeconds(3)));
+        Assert.True(await TestWait.UntilAsync(
+            () => !viewModel.LeftPane.IsLoading, TimeSpan.FromSeconds(3)));
         Assert.Equal(Path.GetFullPath(root), viewModel.LeftPane.CurrentPath);
         viewModel.CancelActiveWork();
     }
