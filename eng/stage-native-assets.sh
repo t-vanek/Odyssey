@@ -33,13 +33,16 @@ cp "$repo_root/THIRD-PARTY-NOTICES.md" "$publish_dir/THIRD-PARTY-NOTICES.md"
 
 case "$rid" in
   win-x64)
+    package_native="$HOME/.nuget/packages/sharpsevenzip/$sharp_version/build/x64/7z.dll"
     native_path="$publish_dir/x64/7z.dll"
     expected_hash=$(jq -er '.sevenZip.windowsX64Sha256' "$manifest")
-    [[ -f "$native_path" ]] || { echo "SharpSevenZip x64/7z.dll is missing." >&2; exit 1; }
-    [[ "$(sha256sum "$native_path" | cut -d' ' -f1)" == "$expected_hash" ]] || {
+    [[ -f "$package_native" ]] || { echo "SharpSevenZip package x64/7z.dll is missing." >&2; exit 1; }
+    [[ "$(sha256sum "$package_native" | cut -d' ' -f1)" == "$expected_hash" ]] || {
       echo "SharpSevenZip x64/7z.dll hash does not match the reviewed manifest." >&2
       exit 1
     }
+    mkdir -p "$(dirname "$native_path")"
+    cp "$package_native" "$native_path"
     [[ "$(od -An -tx1 -N2 "$native_path" | tr -d ' \n')" == "4d5a" ]] || {
       echo "The Windows 7-Zip library is not a PE file." >&2
       exit 1

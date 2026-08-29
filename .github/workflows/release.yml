@@ -237,7 +237,15 @@ jobs:
 
       - name: Stage native libraries and licenses
         shell: bash
-        run: ./eng/stage-native-assets.sh "${{ matrix.rid }}" publish/app artifacts/native/linux-x64
+        run: |
+          # Single-file publish can embed the package DLL on Windows. Materialize the reviewed,
+          # replaceable copy before the tagged staging script verifies it and writes its manifest.
+          if [[ "${{ matrix.rid }}" == "win-x64" && ! -f publish/app/x64/7z.dll ]]; then
+            sharp_version=$(jq -er '.sharpSevenZip.version' eng/native-dependencies.json)
+            mkdir -p publish/app/x64
+            cp "$HOME/.nuget/packages/sharpsevenzip/$sharp_version/build/x64/7z.dll" publish/app/x64/7z.dll
+          fi
+          ./eng/stage-native-assets.sh "${{ matrix.rid }}" publish/app artifacts/native/linux-x64
 
       - name: Create Windows archive
         if: runner.os == 'Windows'
