@@ -17,18 +17,28 @@ public sealed class QuickViewService : IQuickViewService
     private static readonly IReadOnlyList<string> Encodings =
         ["auto", "utf-8", "utf-16", "utf-16BE", "iso-8859-1", "us-ascii"];
     private readonly IArchiveEntryPreviewReader? _archiveReader;
+    private readonly IRemoteFilePreviewReader? _remoteReader;
 
-    public QuickViewService() : this(null, DefaultMaximumChunkBytes) { }
-    public QuickViewService(int maximumChunkBytes) : this(null, maximumChunkBytes) { }
+    public QuickViewService() : this(null, null, DefaultMaximumChunkBytes) { }
+    public QuickViewService(int maximumChunkBytes) : this(null, null, maximumChunkBytes) { }
     public QuickViewService(IArchiveEntryPreviewReader archiveReader)
-        : this(archiveReader, Math.Min(DefaultMaximumChunkBytes, archiveReader.MaximumBlockBytes)) { }
+        : this(archiveReader, null, Math.Min(DefaultMaximumChunkBytes, archiveReader.MaximumBlockBytes)) { }
+    public QuickViewService(IRemoteFilePreviewReader remoteReader)
+        : this(null, remoteReader, Math.Min(DefaultMaximumChunkBytes, remoteReader.MaximumBlockBytes)) { }
+    public QuickViewService(IArchiveEntryPreviewReader archiveReader, IRemoteFilePreviewReader remoteReader)
+        : this(archiveReader, remoteReader, Math.Min(DefaultMaximumChunkBytes,
+            Math.Min(archiveReader.MaximumBlockBytes, remoteReader.MaximumBlockBytes))) { }
 
-    private QuickViewService(IArchiveEntryPreviewReader? archiveReader, int maximumChunkBytes)
+    private QuickViewService(
+        IArchiveEntryPreviewReader? archiveReader,
+        IRemoteFilePreviewReader? remoteReader,
+        int maximumChunkBytes)
     {
         if (maximumChunkBytes is < 1024 or > 4 * 1024 * 1024)
             throw new ArgumentOutOfRangeException(nameof(maximumChunkBytes));
         MaximumChunkBytes = maximumChunkBytes;
         _archiveReader = archiveReader;
+        _remoteReader = remoteReader;
     }
 
     public int MaximumChunkBytes { get; }
@@ -49,6 +59,7 @@ public sealed class QuickViewService : IQuickViewService
         {
             FileTransferEndpointKind.Local => await ReadLocalAsync(request, cancellationToken).ConfigureAwait(false),
             FileTransferEndpointKind.Archive => await ReadArchiveAsync(request, cancellationToken).ConfigureAwait(false),
+            FileTransferEndpointKind.Sftp => await ReadRemoteAsync(request, cancellationToken).ConfigureAwait(false),
             _ => throw new NotSupportedException($"Quick View does not support {request.Endpoint} sources yet.")
         };
     }
@@ -163,6 +174,53 @@ public sealed class QuickViewService : IQuickViewService
         {
             Path = request.Path,
             Version = version,
+            Offset = block.Offset,
+            BytesRead = consumed,
+            NextOffset = block.Offset + consumed,
+            Content = display,
+            EffectiveMode = effectiveMode,
+            EncodingName = detection.Name,
+            IsBinary = detection.IsBinary
+        };
+    }
+
+    private async Task<QuickViewChunk> ReadRemoteAsync(
+        QuickViewReadRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (_remoteReader is null) throw new NotSupportedException("SFTP preview is unavailable.");
+        if (string.IsNullOrWhiteSpace(request.ConnectionKey))
+            throw new ArgumentException("SFTP Quick View requires a connected session.");
+        var expected = request.ExpectedVersion is null
+            ? null
+            : new RemoteFilePreviewVersion(
+                request.ExpectedVersion.Length, request.ExpectedVersion.ModifiedAt);
+        var block = await _remoteReader.ReadBlockAsync(
+            request.ConnectionKey, request.Path, request.Offset, request.MaximumBytes,
+            expected, cancellationToken).ConfigureAwait(false);
+        var detection = DetectEncoding(block.Header, request.EncodingName);
+        var effectiveMode = request.Mode == QuickViewDisplayMode.Auto
+            ? detection.IsBinary ? QuickViewDisplayMode.Hex : QuickViewDisplayMode.Text
+            : request.Mode;
+        var alignedOffset = AlignOffset(block.Offset, effectiveMode, detection.Encoding);
+        if (alignedOffset != block.Offset)
+        {
+            block = await _remoteReader.ReadBlockAsync(
+                request.ConnectionKey, request.Path, alignedOffset, request.MaximumBytes,
+                block.Version, cancellationToken).ConfigureAwait(false);
+        }
+        var consumed = effectiveMode == QuickViewDisplayMode.Text
+            ? CompleteTextPrefixLength(block.Content, detection.Encoding)
+            : block.Content.Length;
+        if (consumed == 0 && block.Content.Length > 0) consumed = block.Content.Length;
+        var display = effectiveMode == QuickViewDisplayMode.Hex
+            ? FormatHex(block.Content.AsSpan(0, consumed), block.Offset)
+            : DecodeText(block.Content.AsSpan(0, consumed), detection.Encoding,
+                block.Offset == 0 ? detection.BomLength : 0);
+        return new QuickViewChunk
+        {
+            Path = request.Path,
+            Version = new QuickViewVersion(block.Version.Length, block.Version.ModifiedAt),
             Offset = block.Offset,
             BytesRead = consumed,
             NextOffset = block.Offset + consumed,

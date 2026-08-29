@@ -66,8 +66,14 @@ Status meanings:
   - Every block validates the complete archive catalogue through existing hostile-path, duplicate/case-collision, link, encryption, quota and, where metadata exists, compression-ratio guards. The preview session binds archive length/time plus entry length/time and rejects changes before or during later reads.
   - Managed ZIP/TAR and capability-gated native formats stream into a 4 KiB detection header and a maximum 256 KiB display block; no preview or persistent cache artifact is created. Native decoding stops after the requested region when safe. Compressed random access can require bounded-memory prefix decoding and is cancellation-aware; a partial read does not claim integrity of an unseen tail.
   - Automated coverage includes ZIP UTF-8 block boundaries, TAR text/hex, version invalidation, traversal/link/corrupt archives, linked container ancestors, cancellation cleanup, conditional native 7z and active/passive panel F3 routing without extraction.
-  - Stage verification: targeted local/archive Quick View suite 18/18 in three consecutive runs; full suite 174/174; stability scenarios 5/5 in three consecutive runs; Debug and Release builds 0 warnings/errors; NuGet audit found no vulnerable direct or transitive package; `git diff --check` passed. Hosted CI is run after the stage commit is pushed and is reported in the stage handoff.
-- Next production stage: direct bounded SFTP preview with controlled lifecycle, followed by syntax highlighting and image/EXIF/PDF/media/document presentation as separate acceptance work. Multi-Rename metadata enrichment, durable crash recovery and restart-persistent Undo also remain open. Writable 7z remains gated on a supported writer and rollback coverage.
+  - Stage verification: targeted local/archive Quick View suite 18/18 in three consecutive runs; full suite 174/174; stability scenarios 5/5 in three consecutive runs; Debug and Release builds 0 warnings/errors; NuGet audit found no vulnerable direct or transitive package; `git diff --check` passed. Hosted Linux/Windows CI run `33266819480` completed successfully, including the native 7z preview and repeated stability paths. Its predecessor runs exposed and led to correction of a pre-existing workspace-test initialization race rather than being hidden by retries.
+- Stage Q3 — direct bounded SFTP Quick View: **Done**.
+  - F3, the Remote-page button and double-click open one selected regular SFTP file over the already connected, strictly host-key-verified session. Directory navigation remains unchanged; local-panel selection is ignored on the Remote page, and explicit disconnect closes the remote viewer.
+  - Quick View receives only the opaque session key and canonical remote path. It rejects reported links/directories, uses cancellable seekable reads for a 4 KiB header plus at most 256 KiB content, creates no local/cache artifact and persists no credential.
+  - Size/modification time are checked before opening, against the stream and after reading; subsequent blocks bind to that version. This detects ordinary change but intentionally does not claim cryptographic content identity when a server preserves both metadata fields.
+  - Test-double coverage verifies block bounds, UTF-8 boundaries, binary/hex output, version invalidation, cancellation/no artifacts, canonical-path rejection, credential non-persistence, disconnect lifecycle and Remote-vs-local selection routing without a public-network dependency. A real SFTP-server integration fixture was not available and is not claimed.
+  - Stage verification: targeted local/archive/SFTP Quick View suite 25/25 in three consecutive runs; full suite 181/181; stability scenarios 5/5 in three consecutive runs; Debug and Release builds 0 warnings/errors; NuGet audit found no vulnerable direct or transitive package; `git diff --check` passed. Hosted CI is run after the stage commit is pushed and is reported in the stage handoff.
+- Next production stage: syntax highlighting for bounded text, followed by image/EXIF/PDF/media/document presentation as separate acceptance work. Multi-Rename metadata enrichment, durable crash recovery and restart-persistent Undo also remain open. Writable 7z remains gated on a supported writer and rollback coverage.
 
 ## 1. Keyboard-first Commander UX
 
@@ -81,7 +87,7 @@ Status meanings:
 | Glob/regex filters and selection masks | Done | Shared timeout-bounded matcher; semicolon glob alternatives; context menu and mask prompt. |
 | Select all/invert/by extension/restore previous | Done | Active-pane commands and visual ListBox synchronization. |
 | Range selection/stable multiselect | Partial | Avalonia range/multiselect is enabled and selection survives valid filter refresh for loaded matches; cross-tab persistence and explicit keyboard range acceptance tests remain. |
-| F3–F8 workflow | Partial | F3 opens bounded local/archive text/hex Quick View; F4 edits via OS association; F5/F6 use transfer flow; F7 creates; F8 trashes. SFTP and rich-format preview remain incomplete. |
+| F3–F8 workflow | Partial | F3 opens bounded local/archive/SFTP text/hex Quick View; F4 edits via OS association; F5/F6 use transfer flow; F7 creates; F8 trashes. Rich-format preview remains incomplete. |
 | Configurable shortcuts/conflict detection | Not started | Current shortcuts are fixed. |
 | Configurable button bar | Not started | Existing bar is fixed. |
 | Safe panel command line | Not started | No command line exists. |
@@ -123,7 +129,7 @@ Remaining: EXIF date and available document/audio metadata tokens; per-volume ca
 |---|---|---|
 | F4 local edit | Partial | OS edit association is invoked safely for one local file; built-in editor and explicit save/publish flow are missing. |
 | Chunked text, encoding, syntax, hex, image/EXIF, PDF, media/document preview | Partial | Local and archive regular files have bounded text blocks, encoding auto-detection/selection and hex view. Syntax highlighting, images/EXIF, PDF, media and document presentation are missing. |
-| Archive/SFTP preview and bounded temp cache | Partial | Archive entries stream without materialization or a cache file and have hostile-input/version/cancellation tests. SFTP preview and any future rich-preview cache lifecycle are missing. |
+| Archive/SFTP preview and bounded temp cache | Done | Archive entries and connected SFTP files stream bounded text/hex blocks without local materialization. Version, path/link, cancellation, active-selection and credential boundaries have automated coverage; no temp cache is needed for these formats. |
 | Text side-by-side/inline diff and options | Not started | Directory comparison does not compare/display text hunks. |
 | Binary/hex diff | Not started | No implementation. |
 | Three-way merge/conflict markers/safe save | Not started | No implementation. |
@@ -147,6 +153,7 @@ Missing: one-way update policy distinctions, mirror, bidirectional state, deleti
 | Bandwidth/parallelism/proxy/jump host | Not started | No implementation. |
 | Remote mutations | Not started | Browser and transfer only; no remote rename/create/trash/delete UI. |
 | Remote compare/sync | Not started | No implementation. |
+| Direct bounded Quick View | Done | Connected-session ranged reads with canonical paths, link rejection, metadata version binding, cancellation, no temp file and no credential persistence. Real-server integration remains an explicit test limitation. |
 | FTP/FTPS, WebDAV, SMB, S3 | Not started | No providers or dependencies. |
 | Unified capability/queue semantics | Partial | Local/SFTP share endpoint records and queue behavior, but capability contracts cover browse only and retry classification is not provider-specific. |
 | Remote→remote | Not started | No server-side or controlled relay transfer. |

@@ -18,10 +18,12 @@ Every ZIP mutation and TAR creation enumerates and validates all local inputs be
 
 Archive→archive copying is not server-side. The durable queue extracts the selected source tree into a random, link-validated relay directory beneath Odyssey application data, performs the same complete target rewrite, and removes the relay in `finally`. On startup, only stale `relay-<GUID>` directories below that exact controlled root are removed, using a traversal that deletes links themselves and never follows them. Unrelated names are preserved. Relay paths contain no credentials.
 
-Encrypted entries are rejected until a separate non-persisting password workflow exists. SFTP Quick View, 7z/compressed-TAR creation, non-ZIP updates/deletes, archive-mutation Undo, hardlink extraction, and crash reconciliation for extraction staging are not implemented yet.
+Encrypted entries are rejected until a separate non-persisting password workflow exists. 7z/compressed-TAR creation, non-ZIP updates/deletes, archive-mutation Undo, hardlink extraction, and crash reconciliation for extraction staging are not implemented yet.
 
 ## Remote operations
 
 Remote secrets are deliberately separated from durable jobs. Queue records may contain endpoint type, paths, policies and opaque session keys, but never passwords, tokens, private keys or key contents. Server identity validation is mandatory: SFTP requires an exact host-key fingerprint, and future TLS providers must validate certificate identity without a global bypass.
 
 Remote copies use bounded streaming rather than whole-file buffering. A temporary destination is not presented as complete. Links are not automatically followed across the trust boundary. Read-only mode blocks remote mutations just as it blocks local mutations. Current SFTP does not yet implement byte-range resume, reconnect/backoff, credential vaults, or remote→remote relay; see [remote connections](remote-connections.md) and [the roadmap](commander-roadmap.md).
+
+Remote Quick View is read-only and does not enter the durable transfer queue. It receives an opaque connected-session key, an absolute canonical remote path, offset and block limit—never the password or private connection material. Before and after a cancellable ranged read, it rejects directories/reported links and compares length plus modification time. Only a 4 KiB detection header and at most 256 KiB of content are retained, with no local materialization. Metadata revalidation detects ordinary concurrent changes but cannot prove content identity against a malicious or non-conforming server that preserves both values. Unexpected connection loss is surfaced; no silent reconnect or server-identity bypass occurs.

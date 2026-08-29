@@ -59,7 +59,9 @@ public sealed class App : Application
                 storage: provider.GetRequiredService<ApplicationStorage>()));
             services.AddSingleton<IArchiveEntryPreviewReader>(provider => provider.GetRequiredService<SafeArchiveService>());
             services.AddSingleton<IQuickViewService>(provider =>
-                new QuickViewService(provider.GetRequiredService<IArchiveEntryPreviewReader>()));
+                new QuickViewService(
+                    provider.GetRequiredService<IArchiveEntryPreviewReader>(),
+                    (IRemoteFilePreviewReader)provider.GetRequiredService<ISftpConnectionService>()));
             services.AddSingleton<IArchiveService>(provider => provider.GetRequiredService<SafeArchiveService>());
             services.AddSingleton<IArchiveMutationService>(provider => provider.GetRequiredService<SafeArchiveService>());
             services.AddSingleton<IArchiveRecoveryService>(provider => provider.GetRequiredService<SafeArchiveService>());

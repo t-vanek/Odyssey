@@ -18,6 +18,7 @@ public sealed class QuickViewViewModel : ObservableObject
     private bool _isBusy;
     private string _sourcePath = string.Empty;
     private FileTransferEndpointKind _endpoint;
+    private string? _connectionKey;
     private string? _containerPath;
     private string? _entryPath;
     private string _content = string.Empty;
@@ -75,6 +76,7 @@ public sealed class QuickViewViewModel : ObservableObject
     }
     public bool CanChangeOptions => !IsBusy;
     public string SourcePath { get => _sourcePath; private set => SetProperty(ref _sourcePath, value); }
+    public FileTransferEndpointKind SourceEndpoint => _endpoint;
     public string SourceName => Path.GetFileName(SourcePath);
     public string Content { get => _content; private set => SetProperty(ref _content, value); }
     public string Status { get => _status; private set => SetProperty(ref _status, value); }
@@ -116,19 +118,25 @@ public sealed class QuickViewViewModel : ObservableObject
     }
 
     public Task OpenAsync(string path) => OpenSourceAsync(
-        Path.GetFullPath(path), FileTransferEndpointKind.Local, null, null);
+        Path.GetFullPath(path), FileTransferEndpointKind.Local, null, null, null);
 
     public Task OpenArchiveAsync(string displayPath, string archivePath, string entryPath) => OpenSourceAsync(
-        displayPath, FileTransferEndpointKind.Archive, Path.GetFullPath(archivePath), entryPath);
+        displayPath, FileTransferEndpointKind.Archive, null, Path.GetFullPath(archivePath), entryPath);
+
+    public Task OpenSftpAsync(string path, string connectionKey) => OpenSourceAsync(
+        path, FileTransferEndpointKind.Sftp, connectionKey, null, null);
 
     private async Task OpenSourceAsync(
         string displayPath,
         FileTransferEndpointKind endpoint,
+        string? connectionKey,
         string? containerPath,
         string? entryPath)
     {
         SourcePath = displayPath;
         _endpoint = endpoint;
+        OnPropertyChanged(nameof(SourceEndpoint));
+        _connectionKey = connectionKey;
         _containerPath = containerPath;
         _entryPath = entryPath;
         OnPropertyChanged(nameof(SourceName));
@@ -180,6 +188,7 @@ public sealed class QuickViewViewModel : ObservableObject
             {
                 Path = SourcePath,
                 Endpoint = _endpoint,
+                ConnectionKey = _connectionKey,
                 ContainerPath = _containerPath,
                 EntryPath = _entryPath,
                 Offset = offset,

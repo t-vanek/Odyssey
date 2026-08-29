@@ -5,7 +5,7 @@ Commander shortcuts work on the active file panel only. The highlighted panel is
 | Shortcut | Action |
 |---|---|
 | `F2` | Rename the single selected item |
-| `F3` | Open bounded Quick View for the selected local file or regular archive entry in the active panel |
+| `F3` | Open bounded Quick View for the selected local/archive file, or the single selected file on the Remote page |
 | `F4` | Edit the selected local file using the operating-system association |
 | `F5` | Copy active-panel selection to the other panel, including local↔ZIP and controlled archive→archive transfer |
 | `F6` | Move active-panel selection to the other panel after confirmation |
@@ -28,7 +28,7 @@ Glob filters support `*`, `?`, and semicolon-separated alternatives such as `*.c
 
 F4 behavior depends on a configured OS file association. On Windows Odyssey asks for the `edit` verb and falls back to the default association if that verb is unavailable. Odyssey passes the selected path as a process argument; it does not construct a shell command string.
 
-Inside Quick View, `Page Up` and `Page Down` load the previous or next bounded byte block. `Ctrl+Home` and `Ctrl+End` jump to the first or last block, and `Escape` closes the viewer. These keys are captured by the viewer, so file mutation shortcuts cannot run against a panel hidden behind it. Opening a directory or supported archive still uses double-click or the application context menu's **Open** action; opening a regular entry inside an archive opens Quick View without extracting it.
+Inside Quick View, `Page Up` and `Page Down` load the previous or next bounded byte block. `Ctrl+Home` and `Ctrl+End` jump to the first or last block, and `Escape` closes the viewer. These keys are captured by the viewer, so file mutation shortcuts cannot run against a panel hidden behind it. Opening a directory or supported archive still uses double-click or the application context menu's **Open** action; opening a regular archive or SFTP entry opens Quick View without extracting/downloading it to a local file.
 
 Each tab has its own target, path, back/forward history, filter mode and filter text. Left and right tab sets are saved independently. A path that is unavailable at startup remains visible as an unavailable tab and is not silently redirected. Persisted paths are revalidated against their indexed target before browsing.
 

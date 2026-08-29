@@ -158,6 +158,11 @@ public sealed partial class MainWindow : Window
         }
         if (!_viewModel.IsFilesPage)
         {
+            if (_viewModel.IsRemotePage && e.Key == Key.F3)
+            {
+                e.Handled = Execute(_viewModel.OpenQuickViewCommand);
+                return;
+            }
             if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control))
                 e.Handled = Execute(_viewModel.ShowPageCommand, "Search");
             return;

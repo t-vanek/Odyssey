@@ -5,7 +5,7 @@ using Renci.SshNet;
 
 namespace Odyssey.Infrastructure;
 
-public sealed class SftpConnectionService : ISftpConnectionService
+public sealed partial class SftpConnectionService : ISftpConnectionService, IRemoteFilePreviewReader
 {
     private const int BufferSize = 1024 * 1024;
     private readonly Dictionary<string, Session> _sessions = new(StringComparer.Ordinal);

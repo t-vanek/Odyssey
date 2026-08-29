@@ -2245,6 +2245,13 @@ public sealed class MainViewModel : ObservableObject
 
     private async Task OpenQuickViewAsync()
     {
+        if (IsRemotePage)
+        {
+            var remote = GetRemoteQuickViewEntry();
+            if (QuickView is null || _sftpConnection is null || remote is null) return;
+            await QuickView.OpenSftpAsync(remote.Entry.FullPath, _sftpConnection.ConnectionKey);
+            return;
+        }
         if (QuickView is null || ActivePane.SelectedEntry is not { } entry) return;
         if (entry.Endpoint == FileTransferEndpointKind.Archive)
         {
@@ -2552,9 +2559,14 @@ public sealed class MainViewModel : ObservableObject
 
     public async Task OpenRemoteEntryAsync(RemoteBrowserRow row)
     {
-        if (row.Entry.Type != FileEntryType.Directory) return;
-        RemotePath = NormalizeRemoteUiPath(row.Entry.FullPath);
-        await RefreshRemoteAsync();
+        if (row.Entry.Type == FileEntryType.Directory)
+        {
+            RemotePath = NormalizeRemoteUiPath(row.Entry.FullPath);
+            await RefreshRemoteAsync();
+            return;
+        }
+        if (row.Entry.IsSymbolicLink || QuickView is null || _sftpConnection is null) return;
+        await QuickView.OpenSftpAsync(row.Entry.FullPath, _sftpConnection.ConnectionKey);
     }
 
     private async Task ConnectSftpAsync()
@@ -2591,6 +2603,8 @@ public sealed class MainViewModel : ObservableObject
         {
             await _sftp.DisconnectAsync(_sftpConnection.ConnectionKey);
             _sftpConnection = null;
+            if (QuickView is { IsOpen: true, SourceEndpoint: FileTransferEndpointKind.Sftp })
+                QuickView.Close();
             RemoteEntries.Clear();
             _selectedRemoteRows = [];
             RemoteStatus = _localization["SftpDisconnected"];
@@ -2688,7 +2702,14 @@ public sealed class MainViewModel : ObservableObject
         RemoteUpCommand.NotifyCanExecuteChanged();
         UploadRemoteCommand.NotifyCanExecuteChanged();
         DownloadRemoteCommand.NotifyCanExecuteChanged();
+        OpenQuickViewCommand.NotifyCanExecuteChanged();
     }
+
+    private RemoteBrowserRow? GetRemoteQuickViewEntry() =>
+        _selectedRemoteRows.Count == 1
+        && _selectedRemoteRows[0].Entry is { Type: FileEntryType.File, IsSymbolicLink: false }
+            ? _selectedRemoteRows[0]
+            : null;
 
     private static string NormalizeRemoteUiPath(string path)
     {
@@ -3056,8 +3077,10 @@ public sealed class MainViewModel : ObservableObject
                                              && item.Endpoint == FileTransferEndpointKind.Local && !item.IsSymbolicLink)
                                          && ActivePane.SelectedEntries.All(item => item.IsParent
                                              || item.Endpoint == FileTransferEndpointKind.Local && !item.IsSymbolicLink);
-    private bool CanOpenQuickView() => QuickView is not null && IsFilesPage
-                                       && ActivePane.SelectedEntry is
+    private bool CanOpenQuickView() => QuickView is not null
+                                       && (IsRemotePage
+                                           ? _sftpConnection is not null && GetRemoteQuickViewEntry() is not null
+                                           : IsFilesPage && ActivePane.SelectedEntry is
                                        {
                                            IsParent: false,
                                            Type: FileEntryType.File,
@@ -3065,7 +3088,7 @@ public sealed class MainViewModel : ObservableObject
                                        } entry
                                        && (entry.Endpoint == FileTransferEndpointKind.Local
                                            || entry.Endpoint == FileTransferEndpointKind.Archive
-                                           && entry.ContainerPath is not null && entry.EntryPath is not null);
+                                           && entry.ContainerPath is not null && entry.EntryPath is not null));
     private bool CanCreateFolder() => !ReadOnlyMode && !IsFileOperationRunning
                                       && (!IsFilesPage || !ActivePane.IsArchive)
                                       && (!string.IsNullOrWhiteSpace(CurrentDirectoryPath) || SelectedTarget is not null);

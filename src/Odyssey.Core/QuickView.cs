@@ -13,6 +13,7 @@ public sealed record QuickViewReadRequest
 {
     public required string Path { get; init; }
     public FileTransferEndpointKind Endpoint { get; init; } = FileTransferEndpointKind.Local;
+    public string? ConnectionKey { get; init; }
     public string? ContainerPath { get; init; }
     public string? EntryPath { get; init; }
     public long Offset { get; init; }
@@ -45,6 +46,28 @@ public interface IArchiveEntryPreviewReader
         long offset,
         int maximumBytes,
         ArchiveEntryPreviewVersion? expectedVersion = null,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed record RemoteFilePreviewVersion(long Length, DateTimeOffset ModifiedAt);
+
+public sealed record RemoteFilePreviewBlock(
+    string ConnectionKey,
+    string Path,
+    long Offset,
+    byte[] Header,
+    byte[] Content,
+    RemoteFilePreviewVersion Version);
+
+public interface IRemoteFilePreviewReader
+{
+    int MaximumBlockBytes { get; }
+    Task<RemoteFilePreviewBlock> ReadBlockAsync(
+        string connectionKey,
+        string path,
+        long offset,
+        int maximumBytes,
+        RemoteFilePreviewVersion? expectedVersion = null,
         CancellationToken cancellationToken = default);
 }
 
