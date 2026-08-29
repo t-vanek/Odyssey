@@ -60,8 +60,14 @@ Status meanings:
   - The viewer reads a configurable 16–256 KiB block through pooled buffers, supports Auto/Text/Hex display, BOM and heuristic UTF-8/UTF-16 detection, explicit UTF-8/UTF-16/Latin-1/ASCII selection, exact hex offsets, previous/next/first/last navigation and cancellation. It never reads the complete large file merely to display one block.
   - Every read uses a canonical regular-file path, rejects leaf and ancestor links/reparse points, binds subsequent blocks to the initial length/modification snapshot and revalidates after I/O. While the modal viewer is open, its key router captures Escape/Page Up/Page Down/Ctrl+Home/Ctrl+End and prevents F2–F8 operations from reaching the hidden panel.
   - Automated coverage includes a 10 MiB bounded-read fixture, text encodings, arbitrary binary hex output, source changes, cancellation, link boundaries, invalid bounds/encoding and active/passive panel routing. New UI resources have Czech/English parity.
-  - Stage verification: targeted Quick View suite 10/10 in three consecutive runs; full suite 166/166; stability scenarios 5/5 in three consecutive runs; Debug and Release builds 0 warnings/errors; NuGet audit found no vulnerable direct or transitive package; `git diff --check` passed. Hosted CI is run after the stage commit is pushed and is reported in the stage handoff.
-- Next production stage: bounded archive-entry preview streams, followed by SFTP preview and limited cache lifecycle. Syntax highlighting and image/EXIF/PDF/media/document presentation remain separate acceptance work. Multi-Rename metadata enrichment, durable crash recovery and restart-persistent Undo also remain open. Writable 7z remains gated on a supported writer and rollback coverage.
+  - Stage verification: targeted Quick View suite 10/10 in three consecutive runs; full suite 166/166; stability scenarios 5/5 in three consecutive runs; Debug and Release builds 0 warnings/errors; NuGet audit found no vulnerable direct or transitive package; `git diff --check` passed. Hosted Linux/Windows CI run `33265407242` completed successfully, including the native-engine path.
+- Stage Q2 — bounded archive-entry Quick View without materialization: **Done**.
+  - F3 and Open route one regular, non-link archive entry from the active panel into the same text/hex viewer without extracting it. Directory navigation is unchanged, inactive-panel selection is ignored, and the viewer remains available in read-only mode.
+  - Every block validates the complete archive catalogue through existing hostile-path, duplicate/case-collision, link, encryption, quota and, where metadata exists, compression-ratio guards. The preview session binds archive length/time plus entry length/time and rejects changes before or during later reads.
+  - Managed ZIP/TAR and capability-gated native formats stream into a 4 KiB detection header and a maximum 256 KiB display block; no preview or persistent cache artifact is created. Native decoding stops after the requested region when safe. Compressed random access can require bounded-memory prefix decoding and is cancellation-aware; a partial read does not claim integrity of an unseen tail.
+  - Automated coverage includes ZIP UTF-8 block boundaries, TAR text/hex, version invalidation, traversal/link/corrupt archives, linked container ancestors, cancellation cleanup, conditional native 7z and active/passive panel F3 routing without extraction.
+  - Stage verification: targeted local/archive Quick View suite 18/18 in three consecutive runs; full suite 174/174; stability scenarios 5/5 in three consecutive runs; Debug and Release builds 0 warnings/errors; NuGet audit found no vulnerable direct or transitive package; `git diff --check` passed. Hosted CI is run after the stage commit is pushed and is reported in the stage handoff.
+- Next production stage: direct bounded SFTP preview with controlled lifecycle, followed by syntax highlighting and image/EXIF/PDF/media/document presentation as separate acceptance work. Multi-Rename metadata enrichment, durable crash recovery and restart-persistent Undo also remain open. Writable 7z remains gated on a supported writer and rollback coverage.
 
 ## 1. Keyboard-first Commander UX
 
@@ -75,7 +81,7 @@ Status meanings:
 | Glob/regex filters and selection masks | Done | Shared timeout-bounded matcher; semicolon glob alternatives; context menu and mask prompt. |
 | Select all/invert/by extension/restore previous | Done | Active-pane commands and visual ListBox synchronization. |
 | Range selection/stable multiselect | Partial | Avalonia range/multiselect is enabled and selection survives valid filter refresh for loaded matches; cross-tab persistence and explicit keyboard range acceptance tests remain. |
-| F3–F8 workflow | Partial | F3 opens bounded local text/hex Quick View; F4 edits via OS association; F5/F6 use transfer flow; F7 creates; F8 trashes. Archive/SFTP and rich-format preview remain incomplete. |
+| F3–F8 workflow | Partial | F3 opens bounded local/archive text/hex Quick View; F4 edits via OS association; F5/F6 use transfer flow; F7 creates; F8 trashes. SFTP and rich-format preview remain incomplete. |
 | Configurable shortcuts/conflict detection | Not started | Current shortcuts are fixed. |
 | Configurable button bar | Not started | Existing bar is fixed. |
 | Safe panel command line | Not started | No command line exists. |
@@ -87,7 +93,7 @@ Status meanings:
 
 ## 2. Archives as virtual filesystem
 
-Overall: **Partial**. Browsing/extraction plus crash-recoverable transactional ZIP create/add/replace/delete are production features. Non-ZIP writing, archive mutation Undo and entry preview are not.
+Overall: **Partial**. Browsing/extraction, bounded entry preview, and crash-recoverable transactional ZIP create/add/replace/delete are production features. Non-ZIP writing and archive mutation Undo are not.
 
 | Capability | Status | Evidence / remaining work |
 |---|---|---|
@@ -101,7 +107,7 @@ Overall: **Partial**. Browsing/extraction plus crash-recoverable transactional Z
 | Add/replace/delete entries | Partial | ZIP supports Fail/Skip/KeepBoth/Replace and transactional tree deletion. Other formats are read-only. |
 | Local→archive and archive→archive | Partial | Local→ZIP and controlled archive→ZIP relay use the durable queue. Non-ZIP destinations are capability-rejected. |
 | Transactional archive rewrite/original preservation | Partial | ZIP mutations and TAR creation write and validate a sibling, journal publication, restore caught failures and reconcile format-validated crash states at startup. Injected post-backup rollback and ZIP/TAR recovery pass. Mutation Undo and extraction-staging recovery remain missing. |
-| Archive-entry Quick View/bounded cache | Not started | Local Quick View now provides the bounded model/UI, but archive entries still report the limitation and can be extracted with F5. |
+| Archive-entry Quick View/bounded cache | Done | Regular unencrypted entries stream directly into the bounded text/hex viewer after full catalogue validation. No materialized/cache file is created; archive/entry versions, links, hostile names, quotas, corruption and cancellation are enforced and tested. |
 
 Remaining archive safety gates include mutation Undo (or an explicit user recovery workflow), extraction-stage crash cleanup, writable 7z coverage, and proof that metadata not understood by each future writer is not silently weakened. Managed ZIP rewrites deliberately reject links and use store mode to remain within Odyssey's own compression-ratio policy. TAR is creation-only, so Odyssey never rewrites or silently weakens metadata from an existing TAR.
 
@@ -116,8 +122,8 @@ Remaining: EXIF date and available document/audio metadata tokens; per-volume ca
 | Capability | Status | Evidence / remaining work |
 |---|---|---|
 | F4 local edit | Partial | OS edit association is invoked safely for one local file; built-in editor and explicit save/publish flow are missing. |
-| Chunked text, encoding, syntax, hex, image/EXIF, PDF, media/document preview | Partial | Local regular files have bounded text blocks, encoding auto-detection/selection and hex view. Syntax highlighting, images/EXIF, PDF, media and document presentation are missing. |
-| Archive/SFTP preview and bounded temp cache | Not started | No preview materialization/cache lifecycle. |
+| Chunked text, encoding, syntax, hex, image/EXIF, PDF, media/document preview | Partial | Local and archive regular files have bounded text blocks, encoding auto-detection/selection and hex view. Syntax highlighting, images/EXIF, PDF, media and document presentation are missing. |
+| Archive/SFTP preview and bounded temp cache | Partial | Archive entries stream without materialization or a cache file and have hostile-input/version/cancellation tests. SFTP preview and any future rich-preview cache lifecycle are missing. |
 | Text side-by-side/inline diff and options | Not started | Directory comparison does not compare/display text hunks. |
 | Binary/hex diff | Not started | No implementation. |
 | Three-way merge/conflict markers/safe save | Not started | No implementation. |
@@ -186,7 +192,7 @@ Secure erase remains intentionally absent. It must not be offered where physical
 ## Cross-cutting release gates
 
 - Read-only enforcement, canonical boundary validation, link/reparse safety, streaming/cancellation, atomic publication, credential redaction, capability enforcement, localization parity, and bounded UI lists are mandatory for every stage.
-- Tests still specifically missing from the target acceptance list: writable 7z fixtures; batch rename cycles/collisions/rollback; sync restart/mirror deletion; remote resume with changed endpoint; injected low-space and disk/server disconnect; credential-persistence scan across every future provider; very-large preview memory; and capability enforcement for future writable/remote providers. ZIP/TAR traversal, source/destination links, case/name collisions, quota, corruption, cancellation, creation, archive capability and crash recovery now pass; ZIP additionally covers conflict policies, add/delete, active-pane queue routing, restart, post-backup rollback, forged recovery paths and controlled relay/link cleanup.
+- Tests still specifically missing from the target acceptance list: writable 7z fixtures; sync restart/mirror deletion; remote resume with changed endpoint; injected low-space and disk/server disconnect; credential-persistence scan across every future provider; explicit very-large preview memory measurement; and capability enforcement for future writable/remote providers. Multi-Rename cycles/collisions/rollback and bounded local/archive preview streaming now pass. ZIP/TAR traversal, source/destination links, case/name collisions, quota, corruption, cancellation, creation, archive capability and crash recovery pass; ZIP additionally covers conflict policies, add/delete, active-pane queue routing, restart, post-backup rollback, forged recovery paths and controlled relay/link cleanup.
 - Final verification is not yet claimable. At the end of every completed stage run relevant tests and `dotnet build --no-restore`; before a release run the complete suite, repeated stability scenarios, vulnerability audit, `git diff --check`, and available Windows/Linux builds.
 
 ## Explicit exclusions

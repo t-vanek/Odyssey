@@ -2219,7 +2219,7 @@ public sealed class MainViewModel : ObservableObject
             if (browserEntry.Endpoint == FileTransferEndpointKind.Archive)
             {
                 if (browserEntry.Type == FileEntryType.Directory) ActivePane.OpenSelectedDirectory();
-                else StatusMessage = _localization["ArchivePreviewPending"];
+                else return OpenQuickViewAsync();
                 return Task.CompletedTask;
             }
             if (browserEntry.Type == FileEntryType.File && ActivePane.CanOpenArchive(browserEntry.FullPath))
@@ -2246,6 +2246,12 @@ public sealed class MainViewModel : ObservableObject
     private async Task OpenQuickViewAsync()
     {
         if (QuickView is null || ActivePane.SelectedEntry is not { } entry) return;
+        if (entry.Endpoint == FileTransferEndpointKind.Archive)
+        {
+            if (entry.ContainerPath is null || entry.EntryPath is null) return;
+            await QuickView.OpenArchiveAsync(entry.FullPath, entry.ContainerPath, entry.EntryPath);
+            return;
+        }
         await QuickView.OpenAsync(entry.FullPath);
     }
 
@@ -3055,9 +3061,11 @@ public sealed class MainViewModel : ObservableObject
                                        {
                                            IsParent: false,
                                            Type: FileEntryType.File,
-                                           Endpoint: FileTransferEndpointKind.Local,
                                            IsSymbolicLink: false
-                                       };
+                                       } entry
+                                       && (entry.Endpoint == FileTransferEndpointKind.Local
+                                           || entry.Endpoint == FileTransferEndpointKind.Archive
+                                           && entry.ContainerPath is not null && entry.EntryPath is not null);
     private bool CanCreateFolder() => !ReadOnlyMode && !IsFileOperationRunning
                                       && (!IsFilesPage || !ActivePane.IsArchive)
                                       && (!string.IsNullOrWhiteSpace(CurrentDirectoryPath) || SelectedTarget is not null);

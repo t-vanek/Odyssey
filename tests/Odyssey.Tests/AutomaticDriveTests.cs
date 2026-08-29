@@ -214,6 +214,64 @@ public sealed class AutomaticDriveTests
     }
 
     [Fact]
+    public async Task QuickView_F3CommandPreviewsTheActiveArchiveEntryWithoutExtraction()
+    {
+        await using var environment = await TestEnvironment.CreateAsync();
+        var root = Path.Combine(environment.Root, "archive-preview");
+        var passiveRoot = Path.Combine(environment.Root, "passive-preview");
+        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(passiveRoot);
+        await File.WriteAllTextAsync(Path.Combine(passiveRoot, "passive.txt"), "wrong panel");
+        var archivePath = Path.Combine(root, "preview.zip");
+        using (var stream = File.Create(archivePath))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
+        {
+            await using var writer = new StreamWriter(archive.CreateEntry("inside.txt").Open());
+            await writer.WriteAsync("inside archive");
+        }
+        var archives = new SafeArchiveService();
+        var coordinator = new ScanCoordinator(
+            new PortableFileSystemScanner(new ConfigurableExclusionPolicy()),
+            new ExtensionFileClassifier(), environment.Store,
+            new ScanPipelineOptions(2, 16, 4), NullLogger<ScanCoordinator>.Instance);
+        var viewModel = new MainViewModel(
+            environment.Store, coordinator, environment.Search,
+            new EmptySystemSearchHistory(), new UnusedDesktopInteraction(),
+            new LocalizationService(environment.Storage),
+            new FixedVolumeDiscovery(new StorageVolume(root, "Test", false)),
+            new CachedDirectoryBrowserService(), new UnusedDiskManagement(),
+            new SafeFileOperationService(environment.Storage),
+            new UserPreferencesService(environment.Storage),
+            new NullBackgroundAutomationService(), new DisabledOcrCapability(),
+            archives: archives, quickView: new QuickViewService(archives));
+        viewModel.ShowPageCommand.Execute("Files");
+        viewModel.LeftPane.SelectedTarget = Target(root);
+        viewModel.RightPane.SelectedTarget = Target(passiveRoot);
+        Assert.True(await TestWait.UntilAsync(
+            () => !viewModel.LeftPane.IsLoading && !viewModel.RightPane.IsLoading,
+            TimeSpan.FromSeconds(3)));
+        viewModel.RightPane.SetSelection([viewModel.RightPane.Entries.Single()]);
+        viewModel.LeftPane.OpenArchive(archivePath);
+        Assert.True(await TestWait.UntilAsync(
+            () => !viewModel.LeftPane.IsLoading && viewModel.LeftPane.Entries.Any(item => item.Name == "inside.txt"),
+            TimeSpan.FromSeconds(3)));
+        viewModel.LeftPane.SetSelection([
+            viewModel.LeftPane.Entries.Single(item => item.Name == "inside.txt")
+        ]);
+        viewModel.LeftPane.Activate();
+
+        await viewModel.OpenQuickViewCommand.ExecuteAsync(null);
+
+        var preview = Assert.IsType<QuickViewViewModel>(viewModel.QuickView);
+        Assert.True(preview.IsOpen);
+        Assert.Equal($"{archivePath}!/inside.txt", preview.SourcePath);
+        Assert.Equal("inside archive", preview.Content);
+        Assert.False(File.Exists(Path.Combine(root, "inside.txt")));
+        Assert.DoesNotContain("wrong panel", preview.Content, StringComparison.Ordinal);
+        viewModel.CancelActiveWork();
+    }
+
+    [Fact]
     public async Task CommanderCopy_RoutesOnlyActiveLocalSelectionIntoPassiveZipTab()
     {
         await using var environment = await TestEnvironment.CreateAsync();

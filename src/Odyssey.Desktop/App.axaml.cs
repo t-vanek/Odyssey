@@ -55,9 +55,11 @@ public sealed class App : Application
             services.AddSingleton<IDiskManagementService, PortableDiskManagementService>();
             services.AddSingleton<IFileOperationService, SafeFileOperationService>();
             services.AddSingleton<IMultiRenameService, MultiRenameService>();
-            services.AddSingleton<IQuickViewService, QuickViewService>();
             services.AddSingleton(provider => new SafeArchiveService(
                 storage: provider.GetRequiredService<ApplicationStorage>()));
+            services.AddSingleton<IArchiveEntryPreviewReader>(provider => provider.GetRequiredService<SafeArchiveService>());
+            services.AddSingleton<IQuickViewService>(provider =>
+                new QuickViewService(provider.GetRequiredService<IArchiveEntryPreviewReader>()));
             services.AddSingleton<IArchiveService>(provider => provider.GetRequiredService<SafeArchiveService>());
             services.AddSingleton<IArchiveMutationService>(provider => provider.GetRequiredService<SafeArchiveService>());
             services.AddSingleton<IArchiveRecoveryService>(provider => provider.GetRequiredService<SafeArchiveService>());

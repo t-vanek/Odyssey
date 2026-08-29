@@ -16,12 +16,19 @@ public sealed class QuickViewService : IQuickViewService
     private static readonly byte[] Utf16BeBom = [0xFE, 0xFF];
     private static readonly IReadOnlyList<string> Encodings =
         ["auto", "utf-8", "utf-16", "utf-16BE", "iso-8859-1", "us-ascii"];
+    private readonly IArchiveEntryPreviewReader? _archiveReader;
 
-    public QuickViewService(int maximumChunkBytes = DefaultMaximumChunkBytes)
+    public QuickViewService() : this(null, DefaultMaximumChunkBytes) { }
+    public QuickViewService(int maximumChunkBytes) : this(null, maximumChunkBytes) { }
+    public QuickViewService(IArchiveEntryPreviewReader archiveReader)
+        : this(archiveReader, Math.Min(DefaultMaximumChunkBytes, archiveReader.MaximumBlockBytes)) { }
+
+    private QuickViewService(IArchiveEntryPreviewReader? archiveReader, int maximumChunkBytes)
     {
         if (maximumChunkBytes is < 1024 or > 4 * 1024 * 1024)
             throw new ArgumentOutOfRangeException(nameof(maximumChunkBytes));
         MaximumChunkBytes = maximumChunkBytes;
+        _archiveReader = archiveReader;
     }
 
     public int MaximumChunkBytes { get; }
@@ -38,7 +45,18 @@ public sealed class QuickViewService : IQuickViewService
         if (request.Offset < 0) throw new ArgumentOutOfRangeException(nameof(request.Offset));
         if (request.MaximumBytes is < 1 || request.MaximumBytes > MaximumChunkBytes)
             throw new ArgumentOutOfRangeException(nameof(request.MaximumBytes));
+        return request.Endpoint switch
+        {
+            FileTransferEndpointKind.Local => await ReadLocalAsync(request, cancellationToken).ConfigureAwait(false),
+            FileTransferEndpointKind.Archive => await ReadArchiveAsync(request, cancellationToken).ConfigureAwait(false),
+            _ => throw new NotSupportedException($"Quick View does not support {request.Endpoint} sources yet.")
+        };
+    }
 
+    private async Task<QuickViewChunk> ReadLocalAsync(
+        QuickViewReadRequest request,
+        CancellationToken cancellationToken)
+    {
         var path = ValidateLocalFile(request.Path);
         var before = Snapshot(path);
         if (request.ExpectedVersion is not null && request.ExpectedVersion != before)
@@ -95,6 +113,64 @@ public sealed class QuickViewService : IQuickViewService
             ArrayPool<byte>.Shared.Return(header);
             ArrayPool<byte>.Shared.Return(content);
         }
+    }
+
+    private async Task<QuickViewChunk> ReadArchiveAsync(
+        QuickViewReadRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (_archiveReader is null) throw new NotSupportedException("Archive preview is unavailable.");
+        if (string.IsNullOrWhiteSpace(request.ContainerPath) || string.IsNullOrWhiteSpace(request.EntryPath))
+            throw new ArgumentException("Archive Quick View requires a container and entry path.");
+        var expected = request.ExpectedVersion is null
+            ? null
+            : request.ExpectedVersion.ContainerLength is { } containerLength
+              && request.ExpectedVersion.ContainerModifiedAt is { } containerModified
+                ? new ArchiveEntryPreviewVersion(containerLength, containerModified,
+                    request.ExpectedVersion.Length, request.ExpectedVersion.EntryModifiedAt)
+                : throw new ArgumentException("The archive preview version is incomplete.");
+        var block = await _archiveReader.ReadBlockAsync(
+            request.ContainerPath, request.EntryPath, request.Offset, request.MaximumBytes,
+            expected, cancellationToken).ConfigureAwait(false);
+        var detection = DetectEncoding(block.Header, request.EncodingName);
+        var effectiveMode = request.Mode == QuickViewDisplayMode.Auto
+            ? detection.IsBinary ? QuickViewDisplayMode.Hex : QuickViewDisplayMode.Text
+            : request.Mode;
+        var alignedOffset = AlignOffset(block.Offset, effectiveMode, detection.Encoding);
+        if (alignedOffset != block.Offset)
+        {
+            block = await _archiveReader.ReadBlockAsync(
+                request.ContainerPath, request.EntryPath, alignedOffset, request.MaximumBytes,
+                block.Version, cancellationToken).ConfigureAwait(false);
+        }
+        var consumed = effectiveMode == QuickViewDisplayMode.Text
+            ? CompleteTextPrefixLength(block.Content, detection.Encoding)
+            : block.Content.Length;
+        if (consumed == 0 && block.Content.Length > 0) consumed = block.Content.Length;
+        var display = effectiveMode == QuickViewDisplayMode.Hex
+            ? FormatHex(block.Content.AsSpan(0, consumed), block.Offset)
+            : DecodeText(block.Content.AsSpan(0, consumed), detection.Encoding,
+                block.Offset == 0 ? detection.BomLength : 0);
+        var version = new QuickViewVersion(
+            block.Version.EntryLength,
+            block.Version.EntryModifiedAt ?? block.Version.ArchiveModifiedAt)
+        {
+            ContainerLength = block.Version.ArchiveLength,
+            ContainerModifiedAt = block.Version.ArchiveModifiedAt,
+            EntryModifiedAt = block.Version.EntryModifiedAt
+        };
+        return new QuickViewChunk
+        {
+            Path = request.Path,
+            Version = version,
+            Offset = block.Offset,
+            BytesRead = consumed,
+            NextOffset = block.Offset + consumed,
+            Content = display,
+            EffectiveMode = effectiveMode,
+            EncodingName = detection.Name,
+            IsBinary = detection.IsBinary
+        };
     }
 
     private async Task<int> ReadAtMostAsync(

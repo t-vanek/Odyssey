@@ -17,6 +17,9 @@ public sealed class QuickViewViewModel : ObservableObject
     private bool _isOpen;
     private bool _isBusy;
     private string _sourcePath = string.Empty;
+    private FileTransferEndpointKind _endpoint;
+    private string? _containerPath;
+    private string? _entryPath;
     private string _content = string.Empty;
     private string _status = string.Empty;
     private string _error = string.Empty;
@@ -112,9 +115,22 @@ public sealed class QuickViewViewModel : ObservableObject
         }
     }
 
-    public async Task OpenAsync(string path)
+    public Task OpenAsync(string path) => OpenSourceAsync(
+        Path.GetFullPath(path), FileTransferEndpointKind.Local, null, null);
+
+    public Task OpenArchiveAsync(string displayPath, string archivePath, string entryPath) => OpenSourceAsync(
+        displayPath, FileTransferEndpointKind.Archive, Path.GetFullPath(archivePath), entryPath);
+
+    private async Task OpenSourceAsync(
+        string displayPath,
+        FileTransferEndpointKind endpoint,
+        string? containerPath,
+        string? entryPath)
     {
-        SourcePath = Path.GetFullPath(path);
+        SourcePath = displayPath;
+        _endpoint = endpoint;
+        _containerPath = containerPath;
+        _entryPath = entryPath;
         OnPropertyChanged(nameof(SourceName));
         _version = null;
         _chunk = null;
@@ -163,6 +179,9 @@ public sealed class QuickViewViewModel : ObservableObject
             var chunk = await _service.ReadAsync(new QuickViewReadRequest
             {
                 Path = SourcePath,
+                Endpoint = _endpoint,
+                ContainerPath = _containerPath,
+                EntryPath = _entryPath,
                 Offset = offset,
                 MaximumBytes = SelectedChunkSize.Bytes,
                 Mode = Mode,
