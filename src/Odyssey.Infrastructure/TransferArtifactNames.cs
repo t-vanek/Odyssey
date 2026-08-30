@@ -6,13 +6,20 @@ internal static class TransferArtifactNames
     private const string BackupMarker = ".odyssey-backup-";
 
     public static bool IsInternal(string name) =>
-        HasGuidSuffix(name, PartMarker) || HasGuidSuffix(name, BackupMarker);
+        TryGetGuidSuffix(name, PartMarker, out _) || TryGetGuidSuffix(name, BackupMarker, out _);
 
-    private static bool HasGuidSuffix(string name, string marker)
+    public static bool TryGetBackupId(string name, out Guid id) =>
+        TryGetGuidSuffix(name, BackupMarker, out id);
+
+    private static bool TryGetGuidSuffix(string name, string marker, out Guid id)
     {
         var markerIndex = name.LastIndexOf(marker, StringComparison.Ordinal);
-        if (markerIndex < 0) return false;
+        if (markerIndex < 0)
+        {
+            id = Guid.Empty;
+            return false;
+        }
         var value = name[(markerIndex + marker.Length)..];
-        return Guid.TryParseExact(value, "N", out _);
+        return Guid.TryParseExact(value, "N", out id);
     }
 }

@@ -45,14 +45,18 @@ public sealed class DirectoryBrowserTests : IDisposable
     {
         Directory.CreateDirectory(_root);
         await File.WriteAllTextAsync(Path.Combine(_root, "visible.txt"), "visible");
-        await File.WriteAllTextAsync(Path.Combine(_root, $"visible.txt.odyssey-part-{Guid.NewGuid():N}"), "partial");
+        await File.WriteAllTextAsync(Path.Combine(_root, $".odyssey-part-{Guid.NewGuid():N}"), "partial");
+        await File.WriteAllTextAsync(Path.Combine(_root, $".odyssey-backup-{Guid.NewGuid():N}"), "backup");
+        var recovered = $"visible.odyssey-recovered-original-{Guid.NewGuid():N}.txt";
+        await File.WriteAllTextAsync(Path.Combine(_root, recovered), "recovered original");
         var local = new LocalFileLocationProvider();
         var registry = new FileLocationProviderRegistry([local]);
 
         var entries = await registry.Get(FileTransferEndpointKind.Local).ListAsync(_root);
 
-        Assert.Single(entries);
-        Assert.Equal("visible.txt", entries[0].Name);
+        Assert.Equal(2, entries.Count);
+        Assert.Contains(entries, item => item.Name == "visible.txt");
+        Assert.Contains(entries, item => item.Name == recovered);
         Assert.True(local.Capabilities.HasFlag(FileLocationCapabilities.Write));
     }
 

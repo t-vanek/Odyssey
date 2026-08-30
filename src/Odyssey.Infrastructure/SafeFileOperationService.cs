@@ -115,30 +115,58 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
             if (record is null) return null;
 
             cancellationToken.ThrowIfCancellationRequested();
-            switch (record.Kind)
+            Guid? restoreJournalId = null;
+            try
             {
-                case FileOperationKind.CreateDirectory:
-                    if (Directory.Exists(record.SourcePath) && !Directory.EnumerateFileSystemEntries(record.SourcePath).Any())
-                        Directory.Delete(record.SourcePath);
-                    else
-                        throw new IOException("The created folder is no longer empty and cannot be undone safely.");
-                    break;
-                case FileOperationKind.Copy:
-                    if (record.DestinationPath is null || !EntryExists(record.DestinationPath))
-                        throw new IOException("The copied item is no longer available.");
-                    await MoveToTrashCoreAsync(record.DestinationPath, cancellationToken);
-                    RestoreReplacedItem(record);
-                    break;
-                case FileOperationKind.Move:
-                case FileOperationKind.Rename:
-                    if (record.DestinationPath is null || !EntryExists(record.DestinationPath))
-                        throw new IOException("The moved item is no longer available.");
-                    EnsureAvailable(record.SourcePath);
-                    MoveEntry(record.DestinationPath, record.SourcePath);
-                    RestoreReplacedItem(record);
-                    break;
-                default:
-                    return null;
+                switch (record.Kind)
+                {
+                    case FileOperationKind.CreateDirectory:
+                        if (Directory.Exists(record.SourcePath)
+                            && !Directory.EnumerateFileSystemEntries(record.SourcePath).Any())
+                            Directory.Delete(record.SourcePath);
+                        else
+                            throw new IOException("The created folder is no longer empty and cannot be undone safely.");
+                        break;
+                    case FileOperationKind.Copy:
+                        if (record.DestinationPath is null || !EntryExists(record.DestinationPath))
+                            throw new IOException("The copied item is no longer available.");
+                        restoreJournalId = await RegisterReplacementRestoreAsync(record, cancellationToken)
+                            .ConfigureAwait(false);
+                        await MoveToTrashCoreAsync(record.DestinationPath, cancellationToken);
+                        RestoreReplacedItem(record);
+                        break;
+                    case FileOperationKind.Move:
+                    case FileOperationKind.Rename:
+                        if (record.DestinationPath is null || !EntryExists(record.DestinationPath))
+                            throw new IOException("The moved item is no longer available.");
+                        EnsureAvailable(record.SourcePath);
+                        restoreJournalId = await RegisterReplacementRestoreAsync(record, cancellationToken)
+                            .ConfigureAwait(false);
+                        MoveEntry(record.DestinationPath, record.SourcePath);
+                        RestoreReplacedItem(record);
+                        break;
+                    default:
+                        return null;
+                }
+
+                if (restoreJournalId is Guid completedRestoreId)
+                {
+                    await _transferArtifacts.TryCompleteAsync(completedRestoreId).ConfigureAwait(false);
+                    restoreJournalId = null;
+                }
+            }
+            catch
+            {
+                if (restoreJournalId is Guid interruptedRestoreId && record.DestinationPath is not null)
+                {
+                    if (record.ReplacedItemBackupPath is not null
+                        && EntryExists(record.ReplacedItemBackupPath)
+                        && !EntryExists(record.DestinationPath))
+                        MoveEntry(record.ReplacedItemBackupPath, record.DestinationPath);
+                    if (EntryExists(record.DestinationPath))
+                        await _transferArtifacts.TryCompleteAsync(interruptedRestoreId).ConfigureAwait(false);
+                }
+                throw;
             }
 
             lock (_history)
@@ -186,19 +214,24 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
                 }
             }
 
-            string? replacedItemBackup = null;
-            if (request.ConflictPolicy == FileConflictPolicy.Replace && EntryExists(destination))
-            {
-                replacedItemBackup = MoveToReplacementBackup(destination);
-            }
-
             var move = request.Kind == FileOperationKind.Move;
             var artifactId = Guid.NewGuid();
-            var temporaryDestination = destination + $".odyssey-part-{artifactId:N}";
+            var temporaryDestination = GetTemporaryArtifactPath(destination, artifactId);
             var artifactRegistered = false;
+            string? replacedItemBackup = null;
 
             try
             {
+                if (request.ConflictPolicy == FileConflictPolicy.Replace && EntryExists(destination))
+                {
+                    replacedItemBackup = GetReplacementBackupPath(destination, artifactId);
+                    await _transferArtifacts.RegisterAsync(
+                        artifactId, temporaryDestination, destination, replacedItemBackup, cancellationToken)
+                        .ConfigureAwait(false);
+                    artifactRegistered = true;
+                    MoveEntry(destination, replacedItemBackup);
+                }
+
                 if (move)
                 {
                     try
@@ -207,6 +240,11 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
                         MoveEntry(source, destination);
                         var size = GetEntrySize(destination);
                         progress?.Report(new FileOperationProgress(size, size, destination));
+                        if (artifactRegistered)
+                        {
+                            await _transferArtifacts.TryCompleteAsync(artifactId).ConfigureAwait(false);
+                            artifactRegistered = false;
+                        }
                         var moved = AddRecord(FileOperationKind.Move, source, destination, canUndo: true, replacedItemBackup);
                         return new FileTransferOutcome(moved, destination, Skipped: false, Verified: true);
                     }
@@ -217,9 +255,12 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
                     }
                 }
 
-                await _transferArtifacts.RegisterAsync(
-                    artifactId, temporaryDestination, destination, cancellationToken).ConfigureAwait(false);
-                artifactRegistered = true;
+                if (!artifactRegistered)
+                {
+                    await _transferArtifacts.RegisterAsync(
+                        artifactId, temporaryDestination, destination, null, cancellationToken).ConfigureAwait(false);
+                    artifactRegistered = true;
+                }
                 var total = GetEntrySize(source);
                 long completed = 0;
                 var progressClock = Stopwatch.StartNew();
@@ -247,10 +288,12 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
             catch
             {
                 TryDeleteEntry(temporaryDestination);
-                if (artifactRegistered && !EntryExists(temporaryDestination))
-                    await _transferArtifacts.TryCompleteAsync(artifactId).ConfigureAwait(false);
                 if (replacedItemBackup is not null && EntryExists(replacedItemBackup) && !EntryExists(destination))
                     MoveEntry(replacedItemBackup, destination);
+                if (artifactRegistered && !EntryExists(temporaryDestination)
+                                       && (replacedItemBackup is null || !EntryExists(replacedItemBackup)
+                                                                         || EntryExists(destination)))
+                    await _transferArtifacts.TryCompleteAsync(artifactId).ConfigureAwait(false);
                 throw;
             }
         }
@@ -364,9 +407,18 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
 
         var trashDirectory = Path.Combine(storage.DirectoryPath, "Trash");
         Directory.CreateDirectory(trashDirectory);
-        var destination = Path.Combine(trashDirectory,
-            $"{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}-{Path.GetFileName(source)}");
+        var destination = Path.Combine(trashDirectory, GetPrivateTrashName(source));
         MoveEntry(source, destination);
+    }
+
+    private static string GetPrivateTrashName(string source)
+    {
+        var sourceName = Path.GetFileName(source);
+        var extension = Directory.Exists(source) ? string.Empty : Path.GetExtension(sourceName);
+        if (extension.Length > 12) extension = string.Empty;
+        var stem = extension.Length == 0 ? sourceName : Path.GetFileNameWithoutExtension(sourceName);
+        if (string.IsNullOrWhiteSpace(stem) || stem.Length > 32) stem = "item";
+        return $"{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}-{stem}-{Guid.NewGuid():N}{extension}";
     }
 
     private FileOperationRecord AddRecord(
@@ -393,10 +445,25 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
 
     private static void RestoreReplacedItem(FileOperationRecord record)
     {
-        if (record.ReplacedItemBackupPath is null || !EntryExists(record.ReplacedItemBackupPath)) return;
+        if (record.ReplacedItemBackupPath is null) return;
+        if (!EntryExists(record.ReplacedItemBackupPath))
+            throw new IOException("The original replaced item backup is no longer available.");
         if (record.DestinationPath is null) throw new IOException("The replaced item has no destination to restore.");
         EnsureAvailable(record.DestinationPath);
         MoveEntry(record.ReplacedItemBackupPath, record.DestinationPath);
+    }
+
+    private async Task<Guid?> RegisterReplacementRestoreAsync(
+        FileOperationRecord record,
+        CancellationToken cancellationToken)
+    {
+        if (record.ReplacedItemBackupPath is null) return null;
+        if (!EntryExists(record.ReplacedItemBackupPath))
+            throw new IOException("The original replaced item backup is no longer available.");
+        if (record.DestinationPath is null)
+            throw new IOException("The replaced item has no destination to restore.");
+        return await _transferArtifacts.RegisterReplacementRestoreAsync(
+            record.ReplacedItemBackupPath, record.DestinationPath, cancellationToken).ConfigureAwait(false);
     }
 
     private static string FindAvailableName(string destination)
@@ -412,28 +479,14 @@ public sealed class SafeFileOperationService(ApplicationStorage storage) : IFile
         throw new IOException("No available destination name could be generated.");
     }
 
-    private string MoveToReplacementBackup(string destination)
+    private static string GetReplacementBackupPath(string destination, Guid artifactId)
     {
-        var backupDirectory = Path.Combine(storage.DirectoryPath, "OperationBackups");
-        var centralBackup = Path.Combine(backupDirectory,
-            $"{Path.GetFileName(destination)}.odyssey-backup-{Guid.NewGuid():N}");
-        try
-        {
-            Directory.CreateDirectory(backupDirectory);
-            MoveEntry(destination, centralBackup);
-            return centralBackup;
-        }
-        catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && EntryExists(destination))
-        {
-            TryDeleteEntry(centralBackup);
-        }
-
         var directory = Path.GetDirectoryName(destination)!;
-        var name = Path.GetFileName(destination);
-        var adjacentBackup = Path.Combine(directory, $".{name}.odyssey-backup-{Guid.NewGuid():N}");
-        MoveEntry(destination, adjacentBackup);
-        return adjacentBackup;
+        return Path.Combine(directory, $".odyssey-backup-{artifactId:N}");
     }
+
+    private static string GetTemporaryArtifactPath(string destination, Guid artifactId) =>
+        Path.Combine(Path.GetDirectoryName(destination)!, $".odyssey-part-{artifactId:N}");
 
     private static async Task<bool> VerifyEntriesAsync(
         string source, string destination, CancellationToken cancellationToken)

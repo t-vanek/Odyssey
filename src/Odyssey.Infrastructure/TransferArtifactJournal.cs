@@ -33,9 +33,10 @@ internal sealed class TransferArtifactJournal
         Guid id,
         string artifactPath,
         string destinationPath,
+        string? replacementBackupPath,
         CancellationToken cancellationToken)
     {
-        var record = CreateValidatedRecord(id, artifactPath, destinationPath);
+        var record = CreateValidatedRecord(id, artifactPath, destinationPath, replacementBackupPath);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -47,6 +48,20 @@ internal sealed class TransferArtifactJournal
             await SaveAsync(records, cancellationToken).ConfigureAwait(false);
         }
         finally { _gate.Release(); }
+    }
+
+    public async Task<Guid> RegisterReplacementRestoreAsync(
+        string replacementBackupPath,
+        string destinationPath,
+        CancellationToken cancellationToken)
+    {
+        var backup = Path.GetFullPath(replacementBackupPath);
+        var destination = Path.GetFullPath(destinationPath);
+        if (!TransferArtifactNames.TryGetBackupId(Path.GetFileName(backup), out var id))
+            throw new IOException("The replacement backup identity is invalid.");
+        var artifact = Path.Combine(Path.GetDirectoryName(destination)!, $".odyssey-part-{id:N}");
+        await RegisterAsync(id, artifact, destination, backup, cancellationToken).ConfigureAwait(false);
+        return id;
     }
 
     public async Task TryCompleteAsync(Guid id)
@@ -87,8 +102,17 @@ internal sealed class TransferArtifactJournal
                 remaining.Add(record);
                 continue;
             }
-            if (!EntryExists(record.ArtifactPath)) continue;
-            try { DeleteOwnedEntry(record.ArtifactPath); }
+            try
+            {
+                if (record.ReplacementBackupPath is not null && EntryExists(record.ReplacementBackupPath))
+                {
+                    var recoveredDestination = EntryExists(record.DestinationPath)
+                        ? FindRecoveredOriginalPath(record)
+                        : record.DestinationPath;
+                    MoveOwnedEntry(record.ReplacementBackupPath, recoveredDestination);
+                }
+                if (EntryExists(record.ArtifactPath)) DeleteOwnedEntry(record.ArtifactPath);
+            }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 remaining.Add(record);
@@ -155,12 +179,14 @@ internal sealed class TransferArtifactJournal
     private static TransferArtifactRecord CreateValidatedRecord(
         Guid id,
         string artifactPath,
-        string destinationPath)
+        string destinationPath,
+        string? replacementBackupPath)
     {
         var destination = Path.GetFullPath(destinationPath);
         var artifact = Path.GetFullPath(artifactPath);
+        var backup = replacementBackupPath is null ? null : Path.GetFullPath(replacementBackupPath);
         var record = new TransferArtifactRecord(
-            id, artifact, destination, DateTimeOffset.UtcNow, Environment.ProcessId);
+            id, artifact, destination, backup, DateTimeOffset.UtcNow, Environment.ProcessId);
         if (!IsValid(record)) throw new IOException("The transfer artifact path is invalid.");
         return record;
     }
@@ -173,9 +199,14 @@ internal sealed class TransferArtifactJournal
         {
             var destination = Path.GetFullPath(record.DestinationPath);
             var artifact = Path.GetFullPath(record.ArtifactPath);
-            var expected = destination + $".odyssey-part-{record.Id:N}";
-            return PathComparer.Equals(artifact, expected)
-                   && PathComparer.Equals(Path.GetDirectoryName(artifact), Path.GetDirectoryName(destination));
+            var expected = Path.Combine(Path.GetDirectoryName(destination)!, $".odyssey-part-{record.Id:N}");
+            if (!PathComparer.Equals(artifact, expected)
+                || !PathComparer.Equals(Path.GetDirectoryName(artifact), Path.GetDirectoryName(destination)))
+                return false;
+            if (record.ReplacementBackupPath is null) return true;
+            var expectedBackup = Path.Combine(Path.GetDirectoryName(destination)!,
+                $".odyssey-backup-{record.Id:N}");
+            return PathComparer.Equals(Path.GetFullPath(record.ReplacementBackupPath), expectedBackup);
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
@@ -229,6 +260,36 @@ internal sealed class TransferArtifactJournal
         Directory.Delete(path, recursive: false);
     }
 
+    private static void MoveOwnedEntry(string source, string destination)
+    {
+        if (EntryExists(destination))
+            throw new IOException("The replacement destination already exists during recovery.");
+        if (File.Exists(source)) File.Move(source, destination, overwrite: false);
+        else if (Directory.Exists(source)) Directory.Move(source, destination);
+        else throw new FileNotFoundException("The replacement backup disappeared during recovery.", source);
+    }
+
+    private static string FindRecoveredOriginalPath(TransferArtifactRecord record)
+    {
+        var directory = Path.GetDirectoryName(record.DestinationPath)!;
+        var destinationName = Path.GetFileName(record.DestinationPath);
+        var isDirectory = Directory.Exists(record.ReplacementBackupPath!);
+        var extension = isDirectory ? string.Empty : Path.GetExtension(destinationName);
+        if (extension.Length > 12) extension = string.Empty;
+        var stem = extension.Length == 0 ? destinationName : Path.GetFileNameWithoutExtension(destinationName);
+        if (stem.Length > 32) stem = "Odyssey";
+        var recoveredName = $"{stem}.odyssey-recovered-original-{record.Id:N}";
+        var candidate = Path.Combine(directory, recoveredName + extension);
+        if (!EntryExists(candidate)) return candidate;
+
+        for (var index = 2; index < 10_000; index++)
+        {
+            candidate = Path.Combine(directory, $"{recoveredName} ({index}){extension}");
+            if (!EntryExists(candidate)) return candidate;
+        }
+        throw new IOException("No available name could be generated for the recovered original item.");
+    }
+
     private static bool EntryExists(string path) => File.Exists(path) || Directory.Exists(path);
 
     private static bool IsProcessAlive(int processId)
@@ -258,6 +319,7 @@ internal sealed class TransferArtifactJournal
         Guid Id,
         string ArtifactPath,
         string DestinationPath,
+        string? ReplacementBackupPath,
         DateTimeOffset CreatedAt,
         int OwnerProcessId);
 }

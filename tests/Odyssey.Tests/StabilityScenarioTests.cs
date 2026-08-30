@@ -307,6 +307,98 @@ public sealed class StabilityScenarioTests
     }
 
     [Fact]
+    public async Task CancelledLargeReplacement_RestoresOriginalAndLeavesNoTransactionArtifacts()
+    {
+        const int fileSize = 24 * 1024 * 1024;
+        await using var workspace = new ScenarioWorkspace();
+        var sourceDirectory = Path.Combine(workspace.Root, "large-replacement-source");
+        var destinationDirectory = Path.Combine(workspace.Root, "large-replacement-destination");
+        Directory.CreateDirectory(sourceDirectory);
+        Directory.CreateDirectory(destinationDirectory);
+        var source = Path.Combine(sourceDirectory, "valuable-work.bin");
+        var destination = Path.Combine(destinationDirectory, Path.GetFileName(source));
+        await using (var stream = new FileStream(source, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        {
+            stream.SetLength(fileSize);
+            stream.Position = fileSize - 1;
+            stream.WriteByte(0x5a);
+        }
+        await File.WriteAllTextAsync(destination, "the customer's original work");
+        var sourceHash = await HashAsync(source);
+        var originalHash = await HashAsync(destination);
+        var operations = new SafeFileOperationService(workspace.Storage)
+        {
+            AccessMode = FileAccessMode.ManageFiles
+        };
+        using var cancellation = new CancellationTokenSource();
+        var progress = new ImmediateProgress<FileOperationProgress>(item =>
+        {
+            if (item.BytesCompleted >= 1024 * 1024) cancellation.Cancel();
+        });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operations.TransferAsync(
+            new FileTransferRequest
+            {
+                Kind = FileOperationKind.Copy,
+                SourcePath = source,
+                DestinationDirectory = destinationDirectory,
+                ConflictPolicy = FileConflictPolicy.Replace,
+                VerifyAfterCopy = true
+            }, progress, cancellation.Token));
+
+        Assert.Equal(sourceHash, await HashAsync(source));
+        Assert.Equal(originalHash, await HashAsync(destination));
+        Assert.Equal("the customer's original work", await File.ReadAllTextAsync(destination));
+        Assert.DoesNotContain(Directory.EnumerateFileSystemEntries(destinationDirectory),
+            path => TransferArtifactNames.IsInternal(Path.GetFileName(path)));
+        Assert.Equal("[]", (await File.ReadAllTextAsync(
+            Path.Combine(workspace.Storage.DirectoryPath, "transfer-artifacts.json"))).Trim());
+        Assert.Empty(operations.History);
+    }
+
+    [Fact]
+    public async Task LongDestinationName_ReplaceAndUndoUseBoundedInternalArtifactNames()
+    {
+        await using var workspace = new ScenarioWorkspace();
+        var sourceDirectory = Path.Combine(workspace.Root, "long-name-source");
+        var destinationDirectory = Path.Combine(workspace.Root, "long-name-destination");
+        Directory.CreateDirectory(sourceDirectory);
+        Directory.CreateDirectory(destinationDirectory);
+        var fileName = new string('a', 210) + ".txt";
+        var source = Path.Combine(sourceDirectory, fileName);
+        var destination = Path.Combine(destinationDirectory, fileName);
+        await File.WriteAllTextAsync(source, "verified replacement for a long filename");
+        await File.WriteAllTextAsync(destination, "original work with a long filename");
+        var originalHash = await HashAsync(destination);
+        var operations = new SafeFileOperationService(workspace.Storage)
+        {
+            AccessMode = FileAccessMode.ManageFiles
+        };
+
+        var outcome = await operations.TransferAsync(new FileTransferRequest
+        {
+            Kind = FileOperationKind.Copy,
+            SourcePath = source,
+            DestinationDirectory = destinationDirectory,
+            ConflictPolicy = FileConflictPolicy.Replace,
+            VerifyAfterCopy = true
+        });
+        var backup = Assert.IsType<string>(outcome.Operation?.ReplacedItemBackupPath);
+
+        Assert.Equal("verified replacement for a long filename", await File.ReadAllTextAsync(destination));
+        Assert.StartsWith(".odyssey-backup-", Path.GetFileName(backup), StringComparison.Ordinal);
+        Assert.True(Path.GetFileName(backup).Length < 80);
+        Assert.True(File.Exists(backup));
+
+        await operations.UndoLastAsync();
+
+        Assert.Equal(originalHash, await HashAsync(destination));
+        Assert.False(File.Exists(backup));
+        Assert.DoesNotContain(Directory.EnumerateFileSystemEntries(destinationDirectory),
+            path => TransferArtifactNames.IsInternal(Path.GetFileName(path)));
+    }
+
+    [Fact]
     public async Task UnicodeNamesAndDirectoryLink_AreIndexedWithoutFollowingALoop()
     {
         await using var workspace = new ScenarioWorkspace();
@@ -920,8 +1012,8 @@ public sealed class StabilityScenarioTests
         var destination = Path.Combine(destinationDirectory, "CustomerWork.txt");
         var ownedId = Guid.NewGuid();
         var foreignId = Guid.NewGuid();
-        var ownedArtifact = destination + $".odyssey-part-{ownedId:N}";
-        var similarForeignFile = destination + $".odyssey-part-{foreignId:N}";
+        var ownedArtifact = Path.Combine(destinationDirectory, $".odyssey-part-{ownedId:N}");
+        var similarForeignFile = Path.Combine(destinationDirectory, $".odyssey-part-{foreignId:N}");
         await File.WriteAllTextAsync(ownedArtifact, "incomplete Odyssey bytes");
         await File.WriteAllTextAsync(similarForeignFile, "must not be inferred as owned");
         var journalPath = Path.Combine(workspace.Storage.DirectoryPath, "transfer-artifacts.json");
@@ -976,6 +1068,151 @@ public sealed class StabilityScenarioTests
     }
 
     [Fact]
+    public async Task InterruptedReplacementBeforePublication_RestoresOriginalAndRemovesPartialArtifact()
+    {
+        await using var workspace = new ScenarioWorkspace();
+        var destinationDirectory = Path.Combine(workspace.Root, "replacement-before-publication");
+        Directory.CreateDirectory(destinationDirectory);
+        var destination = Path.Combine(destinationDirectory, "CustomerWork.txt");
+        var artifactId = Guid.NewGuid();
+        var artifact = Path.Combine(destinationDirectory, $".odyssey-part-{artifactId:N}");
+        var backup = Path.Combine(destinationDirectory, $".odyssey-backup-{artifactId:N}");
+        const string originalWork = "the customer's original and irreplaceable work";
+        await File.WriteAllTextAsync(backup, originalWork);
+        await File.WriteAllTextAsync(artifact, "incomplete replacement bytes");
+        var originalHash = await HashAsync(backup);
+        var journalPath = Path.Combine(workspace.Storage.DirectoryPath, "transfer-artifacts.json");
+        await WriteTransferArtifactJournalAsync(
+            journalPath, artifactId, artifact, destination, backup, int.MaxValue);
+
+        _ = new SafeFileOperationService(workspace.Storage);
+
+        Assert.Equal(originalWork, await File.ReadAllTextAsync(destination));
+        Assert.Equal(originalHash, await HashAsync(destination));
+        Assert.False(File.Exists(backup));
+        Assert.False(File.Exists(artifact));
+        Assert.Equal("[]", (await File.ReadAllTextAsync(journalPath)).Trim());
+    }
+
+    [Fact]
+    public async Task InterruptedReplacementUndo_RestoresOriginalBeforeClosingRecoveryJournal()
+    {
+        await using var workspace = new ScenarioWorkspace();
+        var destinationDirectory = Path.Combine(workspace.Root, "replacement-undo-recovery");
+        Directory.CreateDirectory(destinationDirectory);
+        var destination = Path.Combine(destinationDirectory, "CustomerWork.txt");
+        var artifactId = Guid.NewGuid();
+        var absentArtifact = Path.Combine(destinationDirectory, $".odyssey-part-{artifactId:N}");
+        var backup = Path.Combine(destinationDirectory, $".odyssey-backup-{artifactId:N}");
+        const string originalWork = "the original being restored when Odyssey stopped";
+        await File.WriteAllTextAsync(backup, originalWork);
+        var originalHash = await HashAsync(backup);
+        var journalPath = Path.Combine(workspace.Storage.DirectoryPath, "transfer-artifacts.json");
+        await WriteTransferArtifactJournalAsync(
+            journalPath, artifactId, absentArtifact, destination, backup, int.MaxValue);
+
+        _ = new SafeFileOperationService(workspace.Storage);
+
+        Assert.Equal(originalHash, await HashAsync(destination));
+        Assert.Equal(originalWork, await File.ReadAllTextAsync(destination));
+        Assert.False(File.Exists(backup));
+        Assert.False(File.Exists(absentArtifact));
+        Assert.Equal("[]", (await File.ReadAllTextAsync(journalPath)).Trim());
+    }
+
+    [Fact]
+    public async Task InterruptedReplacementAfterPublication_KeepsPublishedFileAndPreservesOriginalData()
+    {
+        await using var workspace = new ScenarioWorkspace();
+        var destinationDirectory = Path.Combine(workspace.Root, "replacement-after-publication");
+        Directory.CreateDirectory(destinationDirectory);
+        var destination = Path.Combine(destinationDirectory, "CustomerWork.txt");
+        var artifactId = Guid.NewGuid();
+        var artifact = Path.Combine(destinationDirectory, $".odyssey-part-{artifactId:N}");
+        var backup = Path.Combine(destinationDirectory, $".odyssey-backup-{artifactId:N}");
+        const string publishedWork = "the fully published replacement";
+        const string originalWork = "the original retained during recovery";
+        await File.WriteAllTextAsync(destination, publishedWork);
+        await File.WriteAllTextAsync(backup, originalWork);
+        var publishedHash = await HashAsync(destination);
+        var originalHash = await HashAsync(backup);
+        var journalPath = Path.Combine(workspace.Storage.DirectoryPath, "transfer-artifacts.json");
+        await WriteTransferArtifactJournalAsync(
+            journalPath, artifactId, artifact, destination, backup, int.MaxValue);
+
+        _ = new SafeFileOperationService(workspace.Storage);
+
+        var recoveredOriginal = Path.Combine(destinationDirectory,
+            $"CustomerWork.odyssey-recovered-original-{artifactId:N}.txt");
+
+        Assert.Equal(publishedHash, await HashAsync(destination));
+        Assert.Equal(originalHash, await HashAsync(recoveredOriginal));
+        Assert.Equal(publishedWork, await File.ReadAllTextAsync(destination));
+        Assert.Equal(originalWork, await File.ReadAllTextAsync(recoveredOriginal));
+        Assert.False(File.Exists(backup));
+        Assert.False(TransferArtifactNames.IsInternal(Path.GetFileName(recoveredOriginal)));
+        Assert.Equal("[]", (await File.ReadAllTextAsync(journalPath)).Trim());
+    }
+
+    [Fact]
+    public async Task RecoveredOriginalNameCollision_NeverOverwritesAnExistingUserFile()
+    {
+        await using var workspace = new ScenarioWorkspace();
+        var destinationDirectory = Path.Combine(workspace.Root, "recovered-original-collision");
+        Directory.CreateDirectory(destinationDirectory);
+        var destination = Path.Combine(destinationDirectory, "CustomerWork.txt");
+        var artifactId = Guid.NewGuid();
+        var artifact = Path.Combine(destinationDirectory, $".odyssey-part-{artifactId:N}");
+        var backup = Path.Combine(destinationDirectory, $".odyssey-backup-{artifactId:N}");
+        var occupiedRecoveryName = Path.Combine(destinationDirectory,
+            $"CustomerWork.odyssey-recovered-original-{artifactId:N}.txt");
+        var alternateRecoveryName = Path.Combine(destinationDirectory,
+            $"CustomerWork.odyssey-recovered-original-{artifactId:N} (2).txt");
+        await File.WriteAllTextAsync(destination, "published replacement");
+        await File.WriteAllTextAsync(backup, "original recovered from the interrupted transaction");
+        await File.WriteAllTextAsync(occupiedRecoveryName, "unrelated existing user file");
+        var journalPath = Path.Combine(workspace.Storage.DirectoryPath, "transfer-artifacts.json");
+        await WriteTransferArtifactJournalAsync(
+            journalPath, artifactId, artifact, destination, backup, int.MaxValue);
+
+        _ = new SafeFileOperationService(workspace.Storage);
+
+        Assert.Equal("published replacement", await File.ReadAllTextAsync(destination));
+        Assert.Equal("unrelated existing user file", await File.ReadAllTextAsync(occupiedRecoveryName));
+        Assert.Equal("original recovered from the interrupted transaction",
+            await File.ReadAllTextAsync(alternateRecoveryName));
+        Assert.False(File.Exists(backup));
+        Assert.Equal("[]", (await File.ReadAllTextAsync(journalPath)).Trim());
+    }
+
+    [Fact]
+    public async Task TamperedReplacementBackupPath_IsQuarantinedWithoutMovingAnyUserFile()
+    {
+        await using var workspace = new ScenarioWorkspace();
+        var destinationDirectory = Path.Combine(workspace.Root, "replacement-backup-guard");
+        Directory.CreateDirectory(destinationDirectory);
+        var destination = Path.Combine(destinationDirectory, "MissingDestination.txt");
+        var artifactId = Guid.NewGuid();
+        var artifact = Path.Combine(destinationDirectory, $".odyssey-part-{artifactId:N}");
+        var valuableFile = Path.Combine(destinationDirectory, "Thesis-final.txt");
+        await File.WriteAllTextAsync(artifact, "owned partial bytes");
+        await File.WriteAllTextAsync(valuableFile, "irreplaceable user work");
+        var journalPath = Path.Combine(workspace.Storage.DirectoryPath, "transfer-artifacts.json");
+        var invalidJournal = await WriteTransferArtifactJournalAsync(
+            journalPath, artifactId, artifact, destination, valuableFile, int.MaxValue);
+
+        _ = new SafeFileOperationService(workspace.Storage);
+
+        Assert.False(File.Exists(destination));
+        Assert.Equal("owned partial bytes", await File.ReadAllTextAsync(artifact));
+        Assert.Equal("irreplaceable user work", await File.ReadAllTextAsync(valuableFile));
+        Assert.False(File.Exists(journalPath));
+        var quarantine = Assert.Single(Directory.EnumerateFiles(
+            workspace.Storage.DirectoryPath, "transfer-artifacts.corrupt-*.json"));
+        Assert.Equal(invalidJournal, await File.ReadAllTextAsync(quarantine));
+    }
+
+    [Fact]
     public async Task ArtifactOwnedByLiveProcess_IsNeverRemovedByAnotherServiceInstance()
     {
         await using var workspace = new ScenarioWorkspace();
@@ -983,7 +1220,7 @@ public sealed class StabilityScenarioTests
         Directory.CreateDirectory(destinationDirectory);
         var destination = Path.Combine(destinationDirectory, "ActiveTransfer.bin");
         var artifactId = Guid.NewGuid();
-        var artifact = destination + $".odyssey-part-{artifactId:N}";
+        var artifact = Path.Combine(destinationDirectory, $".odyssey-part-{artifactId:N}");
         await File.WriteAllTextAsync(artifact, "transfer still in progress");
         var journalPath = Path.Combine(workspace.Storage.DirectoryPath, "transfer-artifacts.json");
         await File.WriteAllTextAsync(journalPath, JsonSerializer.Serialize(new[]
@@ -1569,6 +1806,31 @@ public sealed class StabilityScenarioTests
     private static StringComparer PathComparer => OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase
         : StringComparer.Ordinal;
+
+    private static async Task<string> WriteTransferArtifactJournalAsync(
+        string journalPath,
+        Guid id,
+        string artifactPath,
+        string destinationPath,
+        string? replacementBackupPath,
+        int ownerProcessId)
+    {
+        var journal = JsonSerializer.Serialize(new[]
+        {
+            new
+            {
+                id,
+                artifactPath,
+                destinationPath,
+                replacementBackupPath,
+                createdAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+                ownerProcessId
+            }
+        }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true });
+        Directory.CreateDirectory(Path.GetDirectoryName(journalPath)!);
+        await File.WriteAllTextAsync(journalPath, journal);
+        return journal;
+    }
 
     private static StringComparison PathComparison => OperatingSystem.IsWindows()
         ? StringComparison.OrdinalIgnoreCase

@@ -131,6 +131,41 @@ public sealed class FileOperationTests
     }
 
     [Fact]
+    [Trait("Category", "Stability")]
+    public async Task UndoReplacement_WithMissingOriginalBackup_RefusesBeforeChangingDestination()
+    {
+        await using var environment = await TestEnvironment.CreateAsync();
+        var sourceDirectory = Path.Combine(environment.Root, "missing-backup-source");
+        var destinationDirectory = Path.Combine(environment.Root, "missing-backup-destination");
+        Directory.CreateDirectory(sourceDirectory);
+        Directory.CreateDirectory(destinationDirectory);
+        var source = Path.Combine(sourceDirectory, "report.txt");
+        var destination = Path.Combine(destinationDirectory, "report.txt");
+        await File.WriteAllTextAsync(source, "new content that must remain visible");
+        await File.WriteAllTextAsync(destination, "original content");
+        var service = new SafeFileOperationService(environment.Storage) { AccessMode = FileAccessMode.ManageFiles };
+        var outcome = await service.TransferAsync(new FileTransferRequest
+        {
+            Kind = FileOperationKind.Copy,
+            SourcePath = source,
+            DestinationDirectory = destinationDirectory,
+            ConflictPolicy = FileConflictPolicy.Replace,
+            VerifyAfterCopy = true
+        });
+        var backup = Assert.IsType<string>(outcome.Operation?.ReplacedItemBackupPath);
+        File.Delete(backup);
+
+        var error = await Assert.ThrowsAsync<IOException>(() => service.UndoLastAsync());
+
+        Assert.Contains("backup", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("new content that must remain visible", await File.ReadAllTextAsync(destination));
+        Assert.Equal("new content that must remain visible", await File.ReadAllTextAsync(source));
+        Assert.True(Assert.Single(service.History).CanUndo);
+        Assert.Equal("[]", (await File.ReadAllTextAsync(
+            Path.Combine(environment.Storage.DirectoryPath, "transfer-artifacts.json"))).Trim());
+    }
+
+    [Fact]
     public async Task ConflictPolicies_CanSkipOrGenerateAnAvailableName()
     {
         await using var environment = await TestEnvironment.CreateAsync();
