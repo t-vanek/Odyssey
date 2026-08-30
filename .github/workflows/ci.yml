@@ -105,6 +105,15 @@ jobs:
               --results-directory TestResults
           done
 
+      - name: Run deterministic benchmark smoke profile
+        env:
+          ODYSSEY_BENCHMARK_COMMIT: ${{ github.sha }}
+        run: >-
+          dotnet run --project benchmarks/Odyssey.Benchmarks/Odyssey.Benchmarks.csproj
+          --configuration Release --no-build --no-restore --
+          --files 500 --rich-documents 10 --iterations 2 --transfer-mib 4
+          --output TestResults/benchmark-${{ runner.os }}.json
+
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

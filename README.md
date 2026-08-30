@@ -99,6 +99,8 @@ Odyssey stores its SQLite index and preferences under the operating system's loc
 
 ## Performance
 
+A deterministic end-to-end benchmark measures the production scanner, plain-text/PDF/Office/ZIP content indexers, FTS search, memory snapshots and SHA-256-verified copy path. Its known-result corpus reports per-format extraction errors, false positives, false negatives, precision, recall, median latency and p95 latency to JSON; CI runs a correctness smoke profile on Linux and Windows without imposing hardware-dependent speed thresholds. See [Reproducible Odyssey benchmark](docs/benchmarking.md).
+
 Directory panels load metadata asynchronously in pages of 400 items. A RAM-budgeted LRU cache makes back/forward navigation immediate, while an explicit virtualizing panel keeps the number of Avalonia controls proportional to the visible rows. Approaching the end of a panel automatically requests the next page.
 
 Completed file operations update the SQLite/FTS index incrementally; they do not trigger a full target rescan. Full scans remain available for verification and external filesystem changes. File-copy progress is rate-limited to roughly ten UI updates per second, copy buffers are rented from the shared array pool, and queue state is written atomically to application data after every durable state transition.

@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Odyssey.Benchmarks/Odyssey.Benchmarks.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/Odyssey.Agent/Odyssey.Agent.csproj" />
     <Project Path="src/Odyssey.Core/Odyssey.Core.csproj" />
