@@ -335,7 +335,11 @@ public sealed class BackgroundAutomationService : IBackgroundAutomationService, 
         }).ConfigureAwait(false);
 
         await _store.UpdateExtractedContentsAsync(updates.ToArray(), token).ConfigureAwait(false);
-        foreach (var targetId in dirtyTargets.Keys) DebounceScan(targetId, TimeSpan.FromMilliseconds(250));
+        // A version mismatch observed around extraction is authoritative, unlike a noisy
+        // filesystem watcher hint. Queue its verification directly so a later watcher
+        // debounce cannot cancel the rescan required before content publication.
+        foreach (var targetId in dirtyTargets.Keys)
+            Enqueue(new BackgroundJob(BackgroundJobKind.Scan, _sessionId, targetId), priority: 1);
         Publish(BackgroundActivity.IndexingContent, completed: completed);
         if (candidates.Count == batchSize)
             _ = ScheduleAsync(job, 2, TimeSpan.FromMilliseconds(200), token);
