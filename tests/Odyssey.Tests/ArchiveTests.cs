@@ -118,7 +118,7 @@ public sealed class ArchiveTests : IDisposable
         CreateTarAt(collision, ("Readme.txt", "one"), ("README.TXT", "two"));
         var corrupt = Path.Combine(_root, "corrupt.tar");
         var bytes = new byte[1024];
-        Random.Shared.NextBytes(bytes);
+        Array.Fill(bytes, byte.MaxValue);
         await File.WriteAllBytesAsync(corrupt, bytes);
 
         await Assert.ThrowsAsync<InvalidDataException>(() => new SafeArchiveService().ListAsync(collision));
