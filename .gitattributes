@@ -1,3 +1,7 @@
 # Bundled Monaco output is reproducibly generated and may contain significant
 # trailing spaces inside JavaScript template literals and upstream notices.
 src/Odyssey.Desktop/Monaco/dist/** -text -whitespace
+
+# Reviewed license hashes must be identical on Linux and Windows runners.
+src/Odyssey.Desktop/Ocr/licenses/** text eol=lf
+src/Odyssey.Desktop/Ocr/tessdata/LICENSE text eol=lf
