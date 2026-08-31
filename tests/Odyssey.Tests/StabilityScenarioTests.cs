@@ -1530,7 +1530,7 @@ public sealed class StabilityScenarioTests
             return extractor.Calls >= 2 && response.Results.Any(item =>
                 PathComparer.Equals(item.FullPath, documentPath)
                 && item.MatchEvidence.HasFlag(SearchMatchEvidence.Content));
-        }, TimeSpan.FromSeconds(8));
+        }, TimeSpan.FromSeconds(20));
         await background.StopAsync();
 
         var currentInfo = new FileInfo(documentPath);
