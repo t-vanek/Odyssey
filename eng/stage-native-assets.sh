@@ -140,6 +140,12 @@ verify_published_hash "licenses/libjpeg-turbo-LICENSE.md" "$(jq -er '.tesseract.
 verify_published_hash "licenses/libpng-LICENSE.txt" "$(jq -er '.tesseract.libpngLicenseSha256' "$manifest")"
 verify_published_hash "licenses/zlib-LICENSE.txt" "$(jq -er '.tesseract.zlibLicenseSha256' "$manifest")"
 
+language_list="$publish_dir/.tesseract-languages.txt"
+"$tesseract_path" --tessdata-dir "$publish_dir/ocr/tessdata" --list-langs > "$language_list"
+grep -qx ces "$language_list" || { echo "Packaged Czech OCR data is unavailable." >&2; exit 1; }
+grep -qx eng "$language_list" || { echo "Packaged English OCR data is unavailable." >&2; exit 1; }
+rm -f "$language_list"
+
 tesseract_hash=$(sha256sum "$tesseract_path" | cut -d' ' -f1)
 jq -n \
   --arg rid "$rid" \

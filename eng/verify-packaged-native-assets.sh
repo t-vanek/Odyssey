@@ -68,12 +68,18 @@ done < <(jq -er '.dataFiles[] | [.path, .sha256] | @tsv' "$asset_manifest")
 }
 
 case "$rid" in
-  win-x64) tesseract_path="$extract_dir/ocr/tesseract.exe" ;;
+  win-x64)
+    tesseract_path="$extract_dir/ocr/tesseract.exe"
+    [[ "$(od -An -tx1 -N2 "$tesseract_path" | tr -d ' \n')" == "4d5a" ]] || {
+      echo "Packaged Windows Tesseract is not a PE file." >&2
+      exit 1
+    }
+    ;;
   linux-x64)
     tesseract_path="$extract_dir/ocr/tesseract"
     [[ -x "$tesseract_path" ]] || { echo "Packaged Tesseract is not executable." >&2; exit 1; }
+    "$tesseract_path" --tessdata-dir "$extract_dir/ocr/tessdata" --list-langs > "$extract_dir/tesseract-languages.txt"
+    grep -qx ces "$extract_dir/tesseract-languages.txt" || { echo "Packaged Czech OCR data is unavailable." >&2; exit 1; }
+    grep -qx eng "$extract_dir/tesseract-languages.txt" || { echo "Packaged English OCR data is unavailable." >&2; exit 1; }
     ;;
 esac
-"$tesseract_path" --tessdata-dir "$extract_dir/ocr/tessdata" --list-langs > "$extract_dir/tesseract-languages.txt"
-grep -qx ces "$extract_dir/tesseract-languages.txt" || { echo "Packaged Czech OCR data is unavailable." >&2; exit 1; }
-grep -qx eng "$extract_dir/tesseract-languages.txt" || { echo "Packaged English OCR data is unavailable." >&2; exit 1; }
