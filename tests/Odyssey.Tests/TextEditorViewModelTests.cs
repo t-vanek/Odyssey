@@ -80,6 +80,49 @@ public sealed class TextEditorViewModelTests : IDisposable
         Assert.Equal(2, desktop.ConfirmationCount);
     }
 
+    [Fact]
+    public async Task MissingWebViewRuntimeUsesFallbackWithoutCreatingNativeControl()
+    {
+        Directory.CreateDirectory(_root);
+        var path = Path.Combine(_root, "fallback.txt");
+        await File.WriteAllTextAsync(path, "content");
+        var desktop = new FakeDesktopInteraction();
+        var viewModel = ViewModel(desktop);
+        var probeCount = 0;
+        var host = new MonacoEditorHost(() =>
+        {
+            probeCount++;
+            return "WebKit test runtime is unavailable.";
+        })
+        {
+            Editor = viewModel
+        };
+
+        await viewModel.OpenAsync(path);
+
+        Assert.True(viewModel.IsOpen);
+        Assert.True(viewModel.HasError);
+        Assert.True(viewModel.IsHostUnavailable);
+        Assert.False(viewModel.IsHostAvailable);
+        Assert.False(viewModel.HasOperationalError);
+        Assert.Contains("WebKit test runtime is unavailable", viewModel.Error, StringComparison.Ordinal);
+        Assert.Equal("WebKit test runtime is unavailable.", viewModel.HostFailureDetails);
+        Assert.False(host.HasNativeWebView);
+        Assert.False(viewModel.SaveCommand.CanExecute(null));
+
+        viewModel.ToggleHostDetailsCommand.Execute(null);
+        Assert.True(viewModel.AreHostDetailsVisible);
+        Assert.Equal("Hide technical details", viewModel.HostDetailsButtonText);
+
+        viewModel.RetryHostCommand.Execute(null);
+        Assert.False(viewModel.AreHostDetailsVisible);
+        Assert.Equal(2, probeCount);
+        Assert.True(viewModel.IsHostUnavailable);
+
+        await viewModel.OpenExternalCommand.ExecuteAsync(null);
+        Assert.Equal(path, desktop.LastEditedPath);
+    }
+
     private TextEditorViewModel ViewModel(FakeDesktopInteraction desktop)
     {
         var storage = new ApplicationStorage(Path.Combine(_root, "app"));
@@ -125,6 +168,7 @@ public sealed class TextEditorViewModelTests : IDisposable
     {
         public bool Confirmation { get; set; }
         public int ConfirmationCount { get; private set; }
+        public string? LastEditedPath { get; private set; }
         public Task<string?> PickFolderAsync() => Task.FromResult<string?>(null);
         public Task<string?> PickDestinationFolderAsync() => Task.FromResult<string?>(null);
         public Task<string?> PromptTextAsync(string title, string message, string initialValue = "") =>
@@ -136,7 +180,11 @@ public sealed class TextEditorViewModelTests : IDisposable
         }
         public Task CopyTextAsync(string text) => Task.CompletedTask;
         public Task OpenAsync(string path) => Task.CompletedTask;
-        public Task EditAsync(string path) => Task.CompletedTask;
+        public Task EditAsync(string path)
+        {
+            LastEditedPath = path;
+            return Task.CompletedTask;
+        }
         public Task OpenContainingFolderAsync(string path) => Task.CompletedTask;
     }
 

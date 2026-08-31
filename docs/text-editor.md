@@ -10,7 +10,7 @@ F4 opens one regular local text file selected in the active file panel. Odyssey 
 - `Ctrl+S` saves, `Escape` requests close, and closing dirty content requires an explicit discard confirmation. F2–F8 cannot escape the editor overlay and act on a hidden panel.
 - Read-only mode opens the document without mutation capability. Switching to file-management mode is required before saving.
 
-If the embedded WebView runtime is unavailable, Odyssey keeps the file untouched, displays the failure, and offers an explicit external-editor action. On Windows the Avalonia WebView uses WebView2. Linux needs a supported WPE WebKit or WebKitGTK runtime supplied by the distribution. This fallback is a capability boundary, not a silent security bypass.
+If the embedded WebView runtime is unavailable, Odyssey keeps the file untouched and replaces the editor surface with a focused fallback state. The primary action opens the file in the external editor, retry probes the runtime again, and technical diagnostics stay collapsed until requested. Editor-only reload, cancel, and save actions are hidden in this state. On Windows the Avalonia WebView uses WebView2. Linux needs a supported WPE WebKit or WebKitGTK runtime supplied by the distribution. This fallback is a capability boundary, not a silent security bypass.
 
 ## Save and conflict model
 

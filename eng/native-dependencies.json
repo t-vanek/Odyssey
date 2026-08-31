@@ -14,5 +14,35 @@
     "sourceCommit": "105964f1c060481a17d20d084aacaecace92ffab",
     "license": "LGPL-3.0-or-later",
     "licenseSha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+  },
+  "tesseract": {
+    "version": "5.5.0",
+    "binaryPackage": "NAPS2.Tesseract.Binaries",
+    "binaryPackageVersion": "1.4.0",
+    "binaryPackageRepository": "https://github.com/cyanfish/naps2-tesseract",
+    "binaryPackageCommit": "95d99470446d1b87610d20dab8b9ab277b39e5dc",
+    "sourceRepository": "https://github.com/tesseract-ocr/tesseract",
+    "sourceCommit": "64eab6c457b2337dd690746a5fde5c222b40d5f8",
+    "licenseSha256": "3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5",
+    "authorsSha256": "d69deaae7deeaa053e597906f19482aa56e3de1536851cd20600a09d888c1224",
+    "linuxX64Sha256": "1d1cc7d2f4edcccef0c11736cd6e53d5620b88b326d5ec6ac95db79d4e85ef00",
+    "windowsX64Sha256": "bcb5f56a6d2a5fddf6d2cd4e315f74a0240a31a0273275e17df518d601217485",
+    "leptonicaCommit": "63aef18d98432b8582a1565e241f7bd2ee9cc8d9",
+    "leptonicaLicenseSha256": "87829abb5bbb00b55a107365da89e9a33f86c4250169e5a1e5588505be7d5806",
+    "libjpegTurboCommit": "8ecba3647edb6dd940463fedf38ca33a8e2a73d1",
+    "libjpegTurboLicenseSha256": "60c756742db3ad1913304e8b13f0e86e22e51adb50cc0b3333c163f7e45ceec1",
+    "libpngCommit": "51f5bd68b9b806d2c92b4318164d28b49357da31",
+    "libpngLicenseSha256": "16d9daaafbf63a31a5bdc91d4600972548fef5aaa1244202393288dbd079c49a",
+    "zlibCommit": "51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf",
+    "zlibLicenseSha256": "845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243"
+  },
+  "tessdataFast": {
+    "sourceRepository": "https://github.com/tesseract-ocr/tessdata_fast",
+    "sourceCommit": "87416418657359cb625c412a48b6e1d6d41c29bd",
+    "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "languages": {
+      "ces": "934bcaf97ef3348413263331131c9fa7f55f30db333c711929c124fb635f7e1b",
+      "eng": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+    }
   }
 }

@@ -24,8 +24,11 @@ public sealed class TextEditorViewModel : ObservableObject
     private bool _isOpen;
     private bool _isDirty;
     private bool _isBusy;
+    private bool _isHostUnavailable;
+    private bool _areHostDetailsVisible;
     private string _status = string.Empty;
     private string? _error;
+    private string _hostFailureDetails = string.Empty;
     private CancellationTokenSource? _activeOperation;
 
     public TextEditorViewModel(
@@ -40,15 +43,20 @@ public sealed class TextEditorViewModel : ObservableObject
         ReloadCommand = new AsyncRelayCommand(ReloadAsync, () => IsOpen && !IsBusy);
         CloseCommand = new AsyncRelayCommand(CloseAsync, () => IsOpen && !IsBusy);
         OpenExternalCommand = new AsyncRelayCommand(OpenExternalAsync, () => IsOpen && Document is not null);
+        RetryHostCommand = new RelayCommand(RetryHost, () => IsOpen && IsHostUnavailable && !IsBusy);
+        ToggleHostDetailsCommand = new RelayCommand(ToggleHostDetails, () => IsHostUnavailable);
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         _localization.LanguageChanged += (_, _) => NotifyLocalizedState();
     }
 
     public event EventHandler? Saved;
+    public event EventHandler? HostRetryRequested;
     public IAsyncRelayCommand SaveCommand { get; }
     public IAsyncRelayCommand ReloadCommand { get; }
     public IAsyncRelayCommand CloseCommand { get; }
     public IAsyncRelayCommand OpenExternalCommand { get; }
+    public IRelayCommand RetryHostCommand { get; }
+    public IRelayCommand ToggleHostDetailsCommand { get; }
     public IRelayCommand CancelCommand { get; }
     public TextEditorDocument? Document => _document;
     public string SourceName => Document?.Name ?? string.Empty;
@@ -59,8 +67,13 @@ public sealed class TextEditorViewModel : ObservableObject
         : $"{Document.EncodingName}{(Document.HasByteOrderMark ? " BOM" : string.Empty)}";
     public bool IsReadOnly => AccessMode != FileAccessMode.ManageFiles;
     public bool HasError => Error is not null;
+    public bool HasOperationalError => HasError && !IsHostUnavailable;
+    public bool IsHostAvailable => !IsHostUnavailable;
     public bool CanSaveNow => CanSave();
     public string AccessStatus => _localization[IsReadOnly ? "TextEditorReadOnly" : "TextEditorWritable"];
+    public string HostFailureDetails => _hostFailureDetails;
+    public string HostDetailsButtonText =>
+        _localization[AreHostDetailsVisible ? "TextEditorHideDetails" : "TextEditorShowDetails"];
 
     public FileAccessMode AccessMode
     {
@@ -99,6 +112,28 @@ public sealed class TextEditorViewModel : ObservableObject
         private set { if (SetProperty(ref _isBusy, value)) NotifyCommands(); }
     }
 
+    public bool IsHostUnavailable
+    {
+        get => _isHostUnavailable;
+        private set
+        {
+            if (!SetProperty(ref _isHostUnavailable, value)) return;
+            OnPropertyChanged(nameof(IsHostAvailable));
+            OnPropertyChanged(nameof(HasOperationalError));
+            NotifyCommands();
+        }
+    }
+
+    public bool AreHostDetailsVisible
+    {
+        get => _areHostDetailsVisible;
+        private set
+        {
+            if (!SetProperty(ref _areHostDetailsVisible, value)) return;
+            OnPropertyChanged(nameof(HostDetailsButtonText));
+        }
+    }
+
     public string Status { get => _status; private set => SetProperty(ref _status, value); }
     public string? Error
     {
@@ -107,6 +142,7 @@ public sealed class TextEditorViewModel : ObservableObject
         {
             if (!SetProperty(ref _error, value)) return;
             OnPropertyChanged(nameof(HasError));
+            OnPropertyChanged(nameof(HasOperationalError));
         }
     }
 
@@ -124,15 +160,25 @@ public sealed class TextEditorViewModel : ObservableObject
             _document = document;
             NotifyDocument();
             IsDirty = false;
-            IsOpen = true;
+            var wasOpen = IsOpen;
+            var existingBridge = _bridge;
             Status = _localization.Format("TextEditorLoaded", document.Version.Length);
-            if (_bridge is not null)
+            IsOpen = true;
+            if (existingBridge is not null)
             {
-                try { await _bridge.ShowDocumentAsync(document, IsReadOnly, linked.Token); }
+                try
+                {
+                    await existingBridge.ShowDocumentAsync(document, IsReadOnly, linked.Token);
+                    ReportHostReady();
+                }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
                     ReportHostFailure(exception.Message);
                 }
+            }
+            else if (wasOpen && _bridge is null)
+            {
+                HostRetryRequested?.Invoke(this, EventArgs.Empty);
             }
         }
         finally
@@ -164,8 +210,23 @@ public sealed class TextEditorViewModel : ObservableObject
 
     public void ReportHostFailure(string message)
     {
+        _hostFailureDetails = message;
+        OnPropertyChanged(nameof(HostFailureDetails));
+        AreHostDetailsVisible = false;
+        IsHostUnavailable = true;
         Error = _localization.Format("TextEditorHostFailed", message);
         Status = _localization["TextEditorExternalAvailable"];
+    }
+
+    public void ReportHostReady()
+    {
+        if (!IsHostUnavailable) return;
+        IsHostUnavailable = false;
+        AreHostDetailsVisible = false;
+        _hostFailureDetails = string.Empty;
+        OnPropertyChanged(nameof(HostFailureDetails));
+        Error = null;
+        Status = _localization.Format("TextEditorLoaded", Document?.Version.Length ?? 0);
     }
 
     public void RequestSaveFromEditor()
@@ -243,6 +304,10 @@ public sealed class TextEditorViewModel : ObservableObject
         Cancel();
         IsOpen = false;
         IsDirty = false;
+        IsHostUnavailable = false;
+        AreHostDetailsVisible = false;
+        _hostFailureDetails = string.Empty;
+        OnPropertyChanged(nameof(HostFailureDetails));
         Error = null;
         Status = string.Empty;
         _document = null;
@@ -257,8 +322,21 @@ public sealed class TextEditorViewModel : ObservableObject
             await _desktop.EditAsync(Document.Path);
             Status = _localization["EditorOpened"];
         }
-        catch (Exception exception) { Error = exception.Message; }
+        catch (Exception exception)
+        {
+            Error = exception.Message;
+            Status = exception.Message;
+        }
     }
+
+    private void RetryHost()
+    {
+        AreHostDetailsVisible = false;
+        Status = _localization["TextEditorRetrying"];
+        HostRetryRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ToggleHostDetails() => AreHostDetailsVisible = !AreHostDetailsVisible;
 
     private Task<bool> ConfirmDiscardAsync() => _desktop.ConfirmAsync(
         _localization["TextEditorDiscardTitle"],
@@ -271,7 +349,11 @@ public sealed class TextEditorViewModel : ObservableObject
 
     private async Task ShowOnAttachedBridgeAsync(ITextEditorBridge bridge, TextEditorDocument document)
     {
-        try { await bridge.ShowDocumentAsync(document, IsReadOnly); }
+        try
+        {
+            await bridge.ShowDocumentAsync(document, IsReadOnly);
+            ReportHostReady();
+        }
         catch (Exception exception) { ReportHostFailure(exception.Message); }
     }
 
@@ -295,6 +377,13 @@ public sealed class TextEditorViewModel : ObservableObject
     private void NotifyLocalizedState()
     {
         OnPropertyChanged(nameof(AccessStatus));
+        OnPropertyChanged(nameof(HostDetailsButtonText));
+        if (IsHostUnavailable)
+        {
+            Error = _localization.Format("TextEditorHostFailed", HostFailureDetails);
+            Status = _localization["TextEditorExternalAvailable"];
+            return;
+        }
         if (IsOpen && !IsBusy && !HasError)
             Status = _localization.Format("TextEditorLoaded", Document?.Version.Length ?? 0);
     }
@@ -305,6 +394,8 @@ public sealed class TextEditorViewModel : ObservableObject
         ReloadCommand.NotifyCanExecuteChanged();
         CloseCommand.NotifyCanExecuteChanged();
         OpenExternalCommand.NotifyCanExecuteChanged();
+        RetryHostCommand.NotifyCanExecuteChanged();
+        ToggleHostDetailsCommand.NotifyCanExecuteChanged();
         CancelCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(CanSaveNow));
     }

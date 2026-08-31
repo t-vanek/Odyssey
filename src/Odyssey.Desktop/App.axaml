@@ -23,6 +23,8 @@
     <StreamGeometry x:Key="IconFolderAdd">M3 5H10L12 7H21V19H3ZM11 10V13H8V15H11V18H13V15H16V13H13V10Z</StreamGeometry>
     <StreamGeometry x:Key="IconTrash">M8 3H16L17 5H21V7H19L18 21H6L5 7H3V5H7ZM7 7L8 19H16L17 7ZM9 9H11V17H9ZM13 9H15V17H13Z</StreamGeometry>
     <StreamGeometry x:Key="IconRename">M4 17.3V20H6.7L17.8 8.9L15.1 6.2ZM17.2 4.1L15.9 5.4L18.6 8.1L19.9 6.8A1.4 1.4 0 0 0 19.9 4.8L19.2 4.1A1.4 1.4 0 0 0 17.2 4.1Z</StreamGeometry>
+    <StreamGeometry x:Key="IconAdd">M11 4H13V11H20V13H13V20H11V13H4V11H11Z</StreamGeometry>
+    <StreamGeometry x:Key="IconClose">M5.4 4L12 10.6L18.6 4L20 5.4L13.4 12L20 18.6L18.6 20L12 13.4L5.4 20L4 18.6L10.6 12L4 5.4Z</StreamGeometry>
   </Application.Resources>
   <Application.Styles>
     <FluentTheme />
@@ -177,6 +179,64 @@
       <Setter Property="Background" Value="#0F1115" />
     </Style>
 
+    <Style Selector="Button.editorPrimary">
+      <Setter Property="Background" Value="#D5B36C" />
+      <Setter Property="Foreground" Value="#17130C" />
+      <Setter Property="BorderBrush" Value="#E3C47F" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Padding" Value="17,9" />
+      <Setter Property="MinHeight" Value="40" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="Button.editorPrimary:pointerover">
+      <Setter Property="Background" Value="#E2C27D" />
+      <Setter Property="BorderBrush" Value="#F0D798" />
+    </Style>
+
+    <Style Selector="Button.editorSecondary">
+      <Setter Property="Background" Value="#171D24" />
+      <Setter Property="Foreground" Value="#DCE3EA" />
+      <Setter Property="BorderBrush" Value="#46515E" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Padding" Value="17,9" />
+      <Setter Property="MinHeight" Value="40" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="Button.editorDetails">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="#8FA1B5" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="7" />
+      <Setter Property="Padding" Value="8,5" />
+      <Setter Property="MinHeight" Value="28" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+
+    <Style Selector="Button.editorDetails:pointerover">
+      <Setter Property="Background" Value="#151A20" />
+      <Setter Property="Foreground" Value="#C8D3DF" />
+    </Style>
+
+    <Style Selector="Button.editorClose">
+      <Setter Property="Width" Value="34" />
+      <Setter Property="MinWidth" Value="34" />
+      <Setter Property="MinHeight" Value="34" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="#AEB8C4" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="CornerRadius" Value="7" />
+      <Setter Property="FontSize" Value="20" />
+    </Style>
+
+    <Style Selector="Button.editorClose:pointerover">
+      <Setter Property="Background" Value="#1A2028" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+      <Setter Property="BorderBrush" Value="#39414C" />
+    </Style>
+
     <Style Selector="Button.navButton">
       <Setter Property="MinHeight" Value="38" />
       <Setter Property="Padding" Value="16,8" />
@@ -232,6 +292,37 @@
       <Setter Property="MinHeight" Value="32" />
       <Setter Property="Padding" Value="0" />
       <Setter Property="CornerRadius" Value="9" />
+    </Style>
+
+    <Style Selector="Button.tabAction">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="MinWidth" Value="28" />
+      <Setter Property="MinHeight" Value="28" />
+      <Setter Property="Padding" Value="6" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="Foreground" Value="#AEB5BF" />
+      <Setter Property="RenderTransform" Value="scale(1)" />
+    </Style>
+
+    <Style Selector="Button.tabAction.add">
+      <Setter Property="Foreground" Value="#D5B36C" />
+    </Style>
+
+    <Style Selector="Button.tabAction:pointerover">
+      <Setter Property="Background" Value="#20242A" />
+      <Setter Property="BorderBrush" Value="#343A43" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+      <Setter Property="RenderTransform" Value="scale(1)" />
+    </Style>
+
+    <Style Selector="Button.tabAction:disabled">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="Foreground" Value="#555C66" />
+      <Setter Property="Opacity" Value="0.65" />
     </Style>
 
     <Style Selector="ComboBox">

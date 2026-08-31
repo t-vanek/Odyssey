@@ -39,17 +39,24 @@ public sealed class LocalContentExtractor : IContentExtractor, IOcrCapability
         ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"
     };
     private readonly string? _tesseractPath;
+    private readonly string? _tessdataPath;
     private readonly SevenZipArchiveReader? _sevenZip = SevenZipArchiveReader.Default;
     private readonly HashSet<string> _supportedExtensions;
 
-    public LocalContentExtractor(string? tesseractPath = null)
+    public LocalContentExtractor(string? tesseractPath = null, string? tessdataPath = null)
     {
         _supportedExtensions = new HashSet<string>(
             PlainTextExtensions.Concat(ArchiveExtensions).Concat(OfficeExtensions).Append(".pdf"),
             StringComparer.OrdinalIgnoreCase);
         if (_sevenZip is not null) _supportedExtensions.UnionWith(SevenZipArchiveExtensions);
-        _tesseractPath = ResolveExecutable(tesseractPath);
-        var probe = ProbeTesseract(_tesseractPath);
+        var installation = ResolveInstallation(
+            tesseractPath,
+            tessdataPath,
+            AppContext.BaseDirectory,
+            Environment.GetEnvironmentVariable("PATH"));
+        _tesseractPath = installation.ExecutablePath;
+        _tessdataPath = installation.DataDirectory;
+        var probe = ProbeTesseract(_tesseractPath, _tessdataPath);
         IsAvailable = probe.Available;
         Languages = probe.Languages;
         UnavailableReason = probe.Reason;
@@ -261,6 +268,7 @@ public sealed class LocalContentExtractor : IContentExtractor, IOcrCapability
         };
         process.StartInfo.ArgumentList.Add(path);
         process.StartInfo.ArgumentList.Add("stdout");
+        AddTessdataArgument(process.StartInfo, _tessdataPath);
         process.StartInfo.ArgumentList.Add("-l");
         process.StartInfo.ArgumentList.Add("ces+eng");
         process.StartInfo.ArgumentList.Add("--oem");
@@ -287,7 +295,9 @@ public sealed class LocalContentExtractor : IContentExtractor, IOcrCapability
         }
     }
 
-    private static (bool Available, IReadOnlyCollection<string> Languages, string? Reason) ProbeTesseract(string? executable)
+    private static (bool Available, IReadOnlyCollection<string> Languages, string? Reason) ProbeTesseract(
+        string? executable,
+        string? tessdataPath)
     {
         if (executable is null) return (false, Array.Empty<string>(), "Tesseract was not found.");
         try
@@ -303,6 +313,7 @@ public sealed class LocalContentExtractor : IContentExtractor, IOcrCapability
                     CreateNoWindow = true
                 }
             };
+            AddTessdataArgument(process.StartInfo, tessdataPath);
             process.StartInfo.ArgumentList.Add("--list-langs");
             process.Start();
             var output = process.StandardOutput.ReadToEnd();
@@ -324,18 +335,31 @@ public sealed class LocalContentExtractor : IContentExtractor, IOcrCapability
         }
     }
 
-    private static string? ResolveExecutable(string? configuredPath)
+    internal static TesseractInstallation ResolveInstallation(
+        string? configuredPath,
+        string? configuredDataDirectory,
+        string applicationDirectory,
+        string? searchPath)
     {
         if (!string.IsNullOrWhiteSpace(configuredPath))
-            return File.Exists(configuredPath) ? Path.GetFullPath(configuredPath) : null;
+            return new TesseractInstallation(
+                File.Exists(configuredPath) ? Path.GetFullPath(configuredPath) : null,
+                NormalizeDataDirectory(configuredDataDirectory));
+
         var fileName = OperatingSystem.IsWindows() ? "tesseract.exe" : "tesseract";
-        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
+        var packagedDirectory = Path.Combine(Path.GetFullPath(applicationDirectory), "ocr");
+        var packagedExecutable = Path.Combine(packagedDirectory, fileName);
+        if (File.Exists(packagedExecutable))
+            return new TesseractInstallation(packagedExecutable, Path.Combine(packagedDirectory, "tessdata"));
+
+        foreach (var directory in (searchPath ?? string.Empty)
                      .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
             try
             {
                 var candidate = Path.Combine(directory, fileName);
-                if (File.Exists(candidate)) return candidate;
+                if (File.Exists(candidate))
+                    return new TesseractInstallation(candidate, NormalizeDataDirectory(configuredDataDirectory));
             }
             catch { }
         }
@@ -343,9 +367,20 @@ public sealed class LocalContentExtractor : IContentExtractor, IOcrCapability
         {
             var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
             var candidate = Path.Combine(programFiles, "Tesseract-OCR", "tesseract.exe");
-            if (File.Exists(candidate)) return candidate;
+            if (File.Exists(candidate))
+                return new TesseractInstallation(candidate, NormalizeDataDirectory(configuredDataDirectory));
         }
-        return null;
+        return new TesseractInstallation(null, NormalizeDataDirectory(configuredDataDirectory));
+    }
+
+    private static string? NormalizeDataDirectory(string? path) =>
+        string.IsNullOrWhiteSpace(path) ? null : Path.GetFullPath(path);
+
+    private static void AddTessdataArgument(ProcessStartInfo startInfo, string? tessdataPath)
+    {
+        if (tessdataPath is null) return;
+        startInfo.ArgumentList.Add("--tessdata-dir");
+        startInfo.ArgumentList.Add(tessdataPath);
     }
 
     private static void AppendXmlText(Stream stream, StringBuilder output, CancellationToken token)
@@ -387,3 +422,5 @@ public sealed class LocalContentExtractor : IContentExtractor, IOcrCapability
         string.IsNullOrWhiteSpace(value) ? string.Empty :
         (value.StartsWith('.') ? value : $".{value}").ToLowerInvariant();
 }
+
+internal sealed record TesseractInstallation(string? ExecutablePath, string? DataDirectory);

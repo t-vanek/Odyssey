@@ -7,12 +7,128 @@ using Odyssey.Core;
 
 namespace Odyssey.Desktop;
 
-public sealed class MonacoEditorHost : NativeWebView, ITextEditorBridge
+public sealed class MonacoEditorHost : ContentControl
+{
+    public static readonly StyledProperty<TextEditorViewModel?> EditorProperty =
+        AvaloniaProperty.Register<MonacoEditorHost, TextEditorViewModel?>(nameof(Editor));
+
+    private readonly Func<string?> _getUnavailableReason;
+    private TextEditorViewModel? _editor;
+    private MonacoEditorWebView? _webView;
+
+    public MonacoEditorHost() : this(MonacoWebViewRuntime.GetUnavailableReason)
+    {
+    }
+
+    internal MonacoEditorHost(Func<string?> getUnavailableReason)
+    {
+        _getUnavailableReason = getUnavailableReason;
+        Unloaded += async (_, _) => await DisposeWebViewAsync();
+    }
+
+    public TextEditorViewModel? Editor
+    {
+        get => GetValue(EditorProperty);
+        set => SetValue(EditorProperty, value);
+    }
+
+    internal bool HasNativeWebView => _webView is not null;
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property != EditorProperty) return;
+        if (change.OldValue is TextEditorViewModel previous)
+        {
+            previous.PropertyChanged -= OnEditorPropertyChanged;
+            previous.HostRetryRequested -= OnHostRetryRequested;
+        }
+        _editor = change.NewValue as TextEditorViewModel;
+        _ = DisposeWebViewAsync();
+        if (_editor is not { } next) return;
+        next.PropertyChanged += OnEditorPropertyChanged;
+        next.HostRetryRequested += OnHostRetryRequested;
+        if (next.IsOpen) EnsureWebView(next);
+    }
+
+    private void OnEditorPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName != nameof(TextEditorViewModel.IsOpen)
+            || sender is not TextEditorViewModel editor) return;
+        if (editor.IsOpen) EnsureWebView(editor);
+        else _ = DisposeWebViewAsync();
+    }
+
+    private void OnHostRetryRequested(object? sender, EventArgs args)
+    {
+        if (sender is TextEditorViewModel editor) _ = RetryWebViewAsync(editor);
+    }
+
+    private async Task RetryWebViewAsync(TextEditorViewModel editor)
+    {
+        await DisposeWebViewAsync();
+        if (ReferenceEquals(_editor, editor) && editor.IsOpen) EnsureWebView(editor);
+    }
+
+    private void EnsureWebView(TextEditorViewModel editor)
+    {
+        if (_webView is not null) return;
+        if (_getUnavailableReason() is { } reason)
+        {
+            editor.ReportHostFailure(reason);
+            return;
+        }
+
+        editor.ReportHostReady();
+        var webView = new MonacoEditorWebView();
+        Content = webView;
+        _webView = webView;
+        webView.Editor = editor;
+    }
+
+    private async Task DisposeWebViewAsync()
+    {
+        if (_webView is not { } webView) return;
+        _webView = null;
+        webView.Editor = null;
+        Content = null;
+        await webView.DisposeHostAsync();
+    }
+}
+
+internal static class MonacoWebViewRuntime
+{
+    public static string? GetUnavailableReason()
+    {
+        WebViewAdapterType[] candidates;
+        if (OperatingSystem.IsLinux())
+            candidates = [WebViewAdapterType.WpeWebKit, WebViewAdapterType.WebKitGtk];
+        else if (OperatingSystem.IsWindows())
+            candidates = [WebViewAdapterType.WebView2, WebViewAdapterType.WebView1];
+        else if (OperatingSystem.IsMacOS())
+            candidates = [WebViewAdapterType.WkWebView];
+        else
+            return null;
+
+        var adapters = candidates.Select(WebViewAdapterInfo.GetAdapterInfo).ToArray();
+        if (adapters.Any(adapter => adapter.IsSupported && adapter.IsInstalled)) return null;
+        var reasons = adapters
+            .Select(adapter => adapter.UnavailableReason)
+            .Where(reason => !string.IsNullOrWhiteSpace(reason))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return reasons.Length == 0
+            ? "No supported embedded WebView runtime is installed."
+            : string.Join(" ", reasons);
+    }
+}
+
+internal sealed class MonacoEditorWebView : NativeWebView, ITextEditorBridge
 {
     private const int MaximumBridgeMessageChars = 64 * 1024 * 1024;
     private static readonly TimeSpan StartupTimeout = TimeSpan.FromSeconds(20);
     public static readonly StyledProperty<TextEditorViewModel?> EditorProperty =
-        AvaloniaProperty.Register<MonacoEditorHost, TextEditorViewModel?>(nameof(Editor));
+        AvaloniaProperty.Register<MonacoEditorWebView, TextEditorViewModel?>(nameof(Editor));
 
     private MonacoAssetServer? _server;
     private TaskCompletionSource _editorReady = NewCompletion();
@@ -21,7 +137,7 @@ public sealed class MonacoEditorHost : NativeWebView, ITextEditorBridge
     private bool _navigationStarted;
     private bool _disposed;
 
-    public MonacoEditorHost()
+    public MonacoEditorWebView()
     {
         Focusable = true;
         EnvironmentRequested += ConfigureEnvironment;
@@ -213,7 +329,7 @@ public sealed class MonacoEditorHost : NativeWebView, ITextEditorBridge
         _contentResponse.TrySetResult(content.GetString() ?? string.Empty);
     }
 
-    private async Task DisposeHostAsync()
+    internal async Task DisposeHostAsync()
     {
         if (_disposed) return;
         _disposed = true;

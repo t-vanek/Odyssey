@@ -324,6 +324,37 @@ public sealed class ContentIndexingTests
     }
 
     [Fact]
+    public void BundledTesseractAndLanguageDataTakePriorityOverPath()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"odyssey-bundled-ocr-{Guid.NewGuid():N}");
+        var applicationDirectory = Path.Combine(root, "app");
+        var bundledOcrDirectory = Path.Combine(applicationDirectory, "ocr");
+        var pathDirectory = Path.Combine(root, "path");
+        var fileName = OperatingSystem.IsWindows() ? "tesseract.exe" : "tesseract";
+        Directory.CreateDirectory(Path.Combine(bundledOcrDirectory, "tessdata"));
+        Directory.CreateDirectory(pathDirectory);
+        var bundledExecutable = Path.Combine(bundledOcrDirectory, fileName);
+        File.WriteAllBytes(bundledExecutable, [1]);
+        File.WriteAllBytes(Path.Combine(pathDirectory, fileName), [2]);
+        try
+        {
+            var installation = LocalContentExtractor.ResolveInstallation(
+                configuredPath: null,
+                configuredDataDirectory: null,
+                applicationDirectory,
+                pathDirectory);
+
+            Assert.Equal(bundledExecutable, installation.ExecutablePath, OperatingSystem.IsWindows());
+            Assert.Equal(Path.Combine(bundledOcrDirectory, "tessdata"), installation.DataDirectory,
+                OperatingSystem.IsWindows());
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public async Task OcrIsEnabledOnlyWithCzechAndEnglish_AndUsesBothLanguages()
     {
         if (OperatingSystem.IsWindows()) return;

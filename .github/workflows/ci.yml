@@ -82,6 +82,21 @@ jobs:
       - name: Build
         run: dotnet build Odyssey.slnx --configuration Release --no-restore -p:ContinuousIntegrationBuild=true -p:TreatWarningsAsErrors=true
 
+      - name: Verify bundled OCR engine and languages
+        shell: bash
+        run: |
+          mkdir -p TestResults
+          ocr_executable="src/Odyssey.Desktop/bin/Release/net10.0/ocr/tesseract"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            ocr_executable="${ocr_executable}.exe"
+          fi
+          test -s "$ocr_executable"
+          "$ocr_executable" \
+            --tessdata-dir src/Odyssey.Desktop/bin/Release/net10.0/ocr/tessdata \
+            --list-langs > TestResults/tesseract-languages.txt
+          grep -qx ces TestResults/tesseract-languages.txt
+          grep -qx eng TestResults/tesseract-languages.txt
+
       - name: Test
         env:
           ODYSSEY_7ZIP_LIBRARY: ${{ runner.os == 'Linux' && format('{0}/artifacts/native/linux-x64/7z.so', github.workspace) || '' }}

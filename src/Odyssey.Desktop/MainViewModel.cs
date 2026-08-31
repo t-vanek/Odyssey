@@ -38,7 +38,10 @@ public sealed record BrowserEntry(
     FileTransferEndpointKind Endpoint = FileTransferEndpointKind.Local,
     string? ContainerPath = null,
     string? EntryPath = null,
-    bool IsSymbolicLink = false);
+    bool IsSymbolicLink = false)
+{
+    public string ModifiedDisplay => ModifiedAt?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? string.Empty;
+}
 
 public sealed record FilePaneTabSnapshot(
     Guid Id,

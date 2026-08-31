@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing version tag, for example v1.2.3 or 0.0.0.1-preview
+        description: Release tag; created from the selected master commit if missing
         required: true
         type: string
 
@@ -32,7 +32,15 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
       update_version: ${{ steps.version.outputs.update_version }}
+      commit: ${{ steps.version.outputs.commit }}
+      tag_exists: ${{ steps.version.outputs.tag_exists }}
     steps:
+      - name: Check out release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Resolve version
         id: version
         shell: bash
@@ -50,31 +58,28 @@ jobs:
             echo "Release tag must match vMAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH.REVISION-preview." >&2
             exit 1
           fi
+
+          if release_commit=$(git rev-parse --verify "refs/tags/$tag^{commit}" 2>/dev/null); then
+            tag_exists=true
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            release_commit=$(git rev-parse HEAD)
+            tag_exists=false
+          else
+            echo "Release tag $tag does not exist." >&2
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "$release_commit" origin/master; then
+            echo "$tag does not point to a commit reachable from master." >&2
+            exit 1
+          fi
+
+          git checkout --detach "$release_commit"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "update_version=$update_version" >> "$GITHUB_OUTPUT"
-
-      - name: Check out tagged source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ steps.version.outputs.tag }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Verify tag belongs to master
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          tag_commit=$(git rev-list -n 1 "$RELEASE_TAG")
-          if [[ -z "$tag_commit" || "$tag_commit" != "$(git rev-parse HEAD)" ]]; then
-            echo "Checked-out commit does not match $RELEASE_TAG." >&2
-            exit 1
-          fi
-          if ! git merge-base --is-ancestor "$tag_commit" origin/master; then
-            echo "$RELEASE_TAG does not point to a commit reachable from master." >&2
-            exit 1
-          fi
+          echo "commit=$release_commit" >> "$GITHUB_OUTPUT"
+          echo "tag_exists=$tag_exists" >> "$GITHUB_OUTPUT"
 
       - name: Install .NET SDK
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
@@ -179,10 +184,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
-      - name: Check out tagged source
+      - name: Check out release commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ needs.validate.outputs.tag }}
+          ref: ${{ needs.validate.outputs.commit }}
           persist-credentials: false
 
       - name: Install .NET SDK
@@ -294,10 +299,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Check out tagged source
+      - name: Check out release commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ needs.validate.outputs.tag }}
+          ref: ${{ needs.validate.outputs.commit }}
           persist-credentials: false
 
       - name: Download platform packages
@@ -364,6 +369,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
           RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+          RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+          TAG_EXISTS: ${{ needs.validate.outputs.tag_exists }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             is_draft=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq .draft)
@@ -373,7 +380,12 @@ jobs:
             fi
             gh release upload "$RELEASE_TAG" dist/* --clobber
           else
-            release_flags=(--verify-tag --draft --generate-notes --title "Odyssey $RELEASE_VERSION")
+            release_flags=(--draft --generate-notes --title "Odyssey $RELEASE_VERSION")
+            if [[ "$TAG_EXISTS" == "true" ]]; then
+              release_flags+=(--verify-tag)
+            else
+              release_flags+=(--target "$RELEASE_COMMIT")
+            fi
             if [[ "$RELEASE_TAG" == *-preview ]]; then
               release_flags+=(--prerelease)
             fi

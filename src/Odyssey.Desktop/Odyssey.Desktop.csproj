@@ -16,6 +16,8 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.11" />
+    <PackageReference Include="NAPS2.Tesseract.Binaries" Version="1.4.0"
+                      GeneratePathProperty="true" PrivateAssets="all" ExcludeAssets="all" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -31,6 +33,36 @@
     <AvaloniaResource Include="Assets/odyssey-icon.png" />
     <AvaloniaResource Include="Assets/odyssey-icon-source.png" />
     <Content Include="Monaco/dist/**/*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Ocr/tessdata/*.traineddata" Link="ocr/tessdata/%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Ocr/tessdata/LICENSE" Link="licenses/Tesseract-traineddata-LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Ocr/licenses/*" Link="licenses/%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(PkgNAPS2_Tesseract_Binaries)/LICENSE" Link="licenses/NAPS2-Tesseract-LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(PkgNAPS2_Tesseract_Binaries)/tesseract-authors.txt" Link="licenses/Tesseract-AUTHORS.txt"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-x64' Or ('$(RuntimeIdentifier)' == '' And $([MSBuild]::IsOSPlatform('Linux')))">
+    <Content Include="$(PkgNAPS2_Tesseract_Binaries)/contentFiles/_linux/tesseract" Link="ocr/tesseract"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" ExcludeFromSingleFile="true" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64' Or ('$(RuntimeIdentifier)' == '' And $([MSBuild]::IsOSPlatform('Windows')))">
+    <Content Include="$(PkgNAPS2_Tesseract_Binaries)/contentFiles/_win64/tesseract.exe" Link="ocr/tesseract.exe"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" ExcludeFromSingleFile="true" />
+  </ItemGroup>
+
+  <Target Name="MakeBundledTesseractExecutable" AfterTargets="CopyFilesToOutputDirectory"
+          Condition="$([MSBuild]::IsOSPlatform('Linux')) And ('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'linux-x64')">
+    <Exec Command="chmod 0755 &quot;$(TargetDir)ocr/tesseract&quot;" Condition="Exists('$(TargetDir)ocr/tesseract')" />
+  </Target>
+
+  <Target Name="MakePublishedTesseractExecutable" AfterTargets="Publish"
+          Condition="$([MSBuild]::IsOSPlatform('Linux')) And '$(RuntimeIdentifier)' == 'linux-x64'">
+    <Exec Command="chmod 0755 &quot;$(PublishDir)ocr/tesseract&quot;" Condition="Exists('$(PublishDir)ocr/tesseract')" />
+  </Target>
 
 </Project>

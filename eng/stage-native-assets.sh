@@ -16,6 +16,9 @@ sharp_license_hash=$(jq -er '.sharpSevenZip.licenseSha256' "$manifest")
 sharp_commit=$(jq -er '.sharpSevenZip.sourceCommit' "$manifest")
 seven_zip_version=$(jq -er '.sevenZip.version' "$manifest")
 seven_zip_commit=$(jq -er '.sevenZip.sourceCommit' "$manifest")
+tesseract_version=$(jq -er '.tesseract.version' "$manifest")
+tesseract_commit=$(jq -er '.tesseract.sourceCommit' "$manifest")
+tessdata_commit=$(jq -er '.tessdataFast.sourceCommit' "$manifest")
 licenses="$publish_dir/licenses"
 mkdir -p "$licenses"
 
@@ -82,10 +85,73 @@ expected_7zip_license=$(jq -er '.sevenZip.licenseSha256' "$manifest")
 cp "$seven_zip_license" "$licenses/7-Zip-LICENSE.txt"
 
 native_hash=$(sha256sum "$native_path" | cut -d' ' -f1)
+
+case "$rid" in
+  win-x64)
+    tesseract_path="$publish_dir/ocr/tesseract.exe"
+    expected_tesseract_hash=$(jq -er '.tesseract.windowsX64Sha256' "$manifest")
+    expected_tesseract_magic=4d5a
+    ;;
+  linux-x64)
+    tesseract_path="$publish_dir/ocr/tesseract"
+    expected_tesseract_hash=$(jq -er '.tesseract.linuxX64Sha256' "$manifest")
+    expected_tesseract_magic=7f454c46
+    ;;
+esac
+
+[[ -f "$tesseract_path" ]] || { echo "Bundled Tesseract executable is missing." >&2; exit 1; }
+[[ "$(sha256sum "$tesseract_path" | cut -d' ' -f1)" == "$expected_tesseract_hash" ]] || {
+  echo "Bundled Tesseract hash does not match the reviewed manifest." >&2
+  exit 1
+}
+[[ "$(od -An -tx1 -N$(( ${#expected_tesseract_magic} / 2 )) "$tesseract_path" | tr -d ' \n')" == "$expected_tesseract_magic" ]] || {
+  echo "Bundled Tesseract executable has the wrong file format for $rid." >&2
+  exit 1
+}
+if [[ "$rid" == "linux-x64" ]]; then
+  chmod 0755 "$tesseract_path"
+  if ldd "$tesseract_path" | grep -q 'not found'; then
+    echo "Bundled Tesseract has unresolved Linux dependencies." >&2
+    ldd "$tesseract_path" >&2
+    exit 1
+  fi
+fi
+
+verify_published_hash() {
+  local relative_path=$1
+  local expected=$2
+  local published_path="$publish_dir/$relative_path"
+  [[ -f "$published_path" ]] || { echo "Required packaged asset is missing: $relative_path" >&2; exit 1; }
+  [[ "$(sha256sum "$published_path" | cut -d' ' -f1)" == "$expected" ]] || {
+    echo "Packaged asset hash does not match the reviewed manifest: $relative_path" >&2
+    exit 1
+  }
+}
+
+ces_hash=$(jq -er '.tessdataFast.languages.ces' "$manifest")
+eng_hash=$(jq -er '.tessdataFast.languages.eng' "$manifest")
+verify_published_hash "ocr/tessdata/ces.traineddata" "$ces_hash"
+verify_published_hash "ocr/tessdata/eng.traineddata" "$eng_hash"
+verify_published_hash "licenses/Tesseract-traineddata-LICENSE.txt" "$(jq -er '.tessdataFast.licenseSha256' "$manifest")"
+verify_published_hash "licenses/NAPS2-Tesseract-LICENSE.txt" "$(jq -er '.tesseract.licenseSha256' "$manifest")"
+verify_published_hash "licenses/Tesseract-AUTHORS.txt" "$(jq -er '.tesseract.authorsSha256' "$manifest")"
+verify_published_hash "licenses/Leptonica-LICENSE.txt" "$(jq -er '.tesseract.leptonicaLicenseSha256' "$manifest")"
+verify_published_hash "licenses/libjpeg-turbo-LICENSE.md" "$(jq -er '.tesseract.libjpegTurboLicenseSha256' "$manifest")"
+verify_published_hash "licenses/libpng-LICENSE.txt" "$(jq -er '.tesseract.libpngLicenseSha256' "$manifest")"
+verify_published_hash "licenses/zlib-LICENSE.txt" "$(jq -er '.tesseract.zlibLicenseSha256' "$manifest")"
+
+tesseract_hash=$(sha256sum "$tesseract_path" | cut -d' ' -f1)
 jq -n \
   --arg rid "$rid" \
   --arg path "${native_path#"$publish_dir/"}" \
   --arg sha256 "$native_hash" \
+  --arg tesseractPath "${tesseract_path#"$publish_dir/"}" \
+  --arg tesseractSha256 "$tesseract_hash" \
+  --arg tesseractVersion "$tesseract_version" \
+  --arg tesseractCommit "$tesseract_commit" \
+  --arg tessdataCommit "$tessdata_commit" \
+  --arg cesSha256 "$ces_hash" \
+  --arg engSha256 "$eng_hash" \
   --arg sevenZipVersion "$seven_zip_version" \
   --arg sevenZipCommit "$seven_zip_commit" \
   --arg sharpSevenZipVersion "$sharp_version" \
@@ -93,13 +159,36 @@ jq -n \
   '{
     schemaVersion: 1,
     rid: $rid,
-    nativeLibraries: [{
-      name: "7-Zip",
-      version: $sevenZipVersion,
-      path: $path,
-      sha256: $sha256,
-      sourceCommit: $sevenZipCommit
-    }],
+    nativeLibraries: [
+      {
+        name: "7-Zip",
+        version: $sevenZipVersion,
+        path: $path,
+        sha256: $sha256,
+        sourceCommit: $sevenZipCommit
+      },
+      {
+        name: "Tesseract OCR",
+        version: $tesseractVersion,
+        path: $tesseractPath,
+        sha256: $tesseractSha256,
+        sourceCommit: $tesseractCommit
+      }
+    ],
+    dataFiles: [
+      {
+        name: "Tesseract Czech language data",
+        path: "ocr/tessdata/ces.traineddata",
+        sha256: $cesSha256,
+        sourceCommit: $tessdataCommit
+      },
+      {
+        name: "Tesseract English language data",
+        path: "ocr/tessdata/eng.traineddata",
+        sha256: $engSha256,
+        sourceCommit: $tessdataCommit
+      }
+    ],
     managedWrappers: [{
       name: "SharpSevenZip",
       version: $sharpSevenZipVersion,
